@@ -90,7 +90,7 @@ end
 -- UI & Feature init
 local function CreateUI()
     -- Load Rayfield once
-    local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+    Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
     -- Create Window
     local Window = Rayfield:CreateWindow({
