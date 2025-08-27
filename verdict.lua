@@ -1,4 +1,4 @@
--- Services & cached refs
+-- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -9,9 +9,9 @@ local LocalPlayer = Players.LocalPlayer
 
 -- General state
 local lastPlace = nil
-local conns = {} -- store active connections
-local windows = {} -- refs for created UI elements (Window/Tabs)
-local flags = {} -- feature flags
+local conns = {}
+local windows = {}
+local flags = {}
 local originalLighting = {}
 local customSpeed = 16
 
@@ -23,9 +23,7 @@ local function safeDisconnect(conn)
 end
 
 local function setConn(name, conn)
-    if conns[name] then
-        safeDisconnect(conns[name])
-    end
+    if conns[name] then safeDisconnect(conns[name]) end
     conns[name] = conn
 end
 
@@ -43,7 +41,7 @@ local function clearAllConns()
     end
 end
 
--- Character/Humanoid helpers
+-- Character helpers
 local function getCharacter()
     return LocalPlayer and (LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait())
 end
@@ -63,12 +61,17 @@ local function getHRP()
     return char and (char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("HumanoidRootPart", 5))
 end
 
--- Notification wrapper (Rayfield will be set later)
+-- Notification
 local Rayfield = nil
 local function notify(msg)
     if Rayfield and Rayfield.Notify then
         pcall(function()
-            Rayfield:Notify({ Title = "Info", Content = tostring(msg), Duration = 3, Image = 4483362458 })
+            Rayfield:Notify({
+                Title = "Info",
+                Content = tostring(msg),
+                Duration = 3,
+                Image = 4483362458
+            })
         end)
     else
         warn("[Verdict] " .. tostring(msg))
@@ -80,19 +83,17 @@ local function sortedPlayerNames()
     local t = {}
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer then
-            t[#t+1] = plr.Name
+            table.insert(t, plr.Name)
         end
     end
     table.sort(t)
     return t
 end
 
--- UI & Feature init
+-- UI & Features
 local function CreateUI()
-    -- Load Rayfield
     Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
-    -- Create Window
     local Window = Rayfield:CreateWindow({
         Name = "Verdict",
         LoadingTitle = "Verdict",
@@ -185,54 +186,48 @@ local function CreateUI()
         end
     })
 
--- CFly (Head Anchor Method, Speed 50)
-flags.cframeFly = false
-local CFloop
+    -- CFly
+    flags.cframeFly = false
+    local CFloop
+    Main:CreateToggle({
+        Name = "CFly",
+        CurrentValue = false,
+        Callback = function(enabled)
+            flags.cframeFly = enabled
+            if CFloop then CFloop:Disconnect() CFloop = nil end
 
-Main:CreateToggle({
-    Name = "CFly",
-    CurrentValue = false,
-    Callback = function(enabled)
-        flags.cframeFly = enabled
-        if CFloop then CFloop:Disconnect() CFloop = nil end
+            local char = getCharacter()
+            local hum = getHumanoid()
+            local head = char and char:FindFirstChild("Head")
 
-        local char = getCharacter()
-        local hum = getHumanoid()
-        local head = char and char:FindFirstChild("Head")
+            if enabled then
+                if hum then hum.PlatformStand = true end
+                if head then head.Anchored = true end
 
-        if enabled then
-            if hum then hum.PlatformStand = true end
-            if head then head.Anchored = true end
-
-            local CFspeed = 50
-            CFloop = RunService.Heartbeat:Connect(function(deltaTime)
-                if not char or not hum or not head then return end
-
-                local moveDirection = hum.MoveDirection * (CFspeed * deltaTime)
-                local headCFrame = head.CFrame
-                local cameraCFrame = Workspace.CurrentCamera.CFrame
-
-                local cameraOffset = headCFrame:ToObjectSpace(cameraCFrame).Position
-                cameraCFrame = cameraCFrame * CFrame.new(-cameraOffset.X, -cameraOffset.Y, -cameraOffset.Z + 1)
-
-                local cameraPosition = cameraCFrame.Position
-                local headPosition = headCFrame.Position
-
-                local objectSpaceVelocity = CFrame.new(
-                    cameraPosition,
-                    Vector3.new(headPosition.X, cameraPosition.Y, headPosition.Z)
-                ):VectorToObjectSpace(moveDirection)
-
-                head.CFrame = CFrame.new(headPosition) * (cameraCFrame - cameraPosition) * CFrame.new(objectSpaceVelocity)
-            end)
-            notify("CFly: ON")
-        else
-            if hum then hum.PlatformStand = false end
-            if head then head.Anchored = false end
-            notify("CFly: OFF")
+                local CFspeed = 50
+                CFloop = RunService.Heartbeat:Connect(function(deltaTime)
+                    if not char or not hum or not head then return end
+                    local moveDirection = hum.MoveDirection * (CFspeed * deltaTime)
+                    local headCFrame = head.CFrame
+                    local cameraCFrame = Workspace.CurrentCamera.CFrame
+                    local cameraOffset = headCFrame:ToObjectSpace(cameraCFrame).Position
+                    cameraCFrame = cameraCFrame * CFrame.new(-cameraOffset.X, -cameraOffset.Y, -cameraOffset.Z + 1)
+                    local cameraPosition = cameraCFrame.Position
+                    local headPosition = headCFrame.Position
+                    local objectSpaceVelocity = CFrame.new(
+                        cameraPosition,
+                        Vector3.new(headPosition.X, cameraPosition.Y, headPosition.Z)
+                    ):VectorToObjectSpace(moveDirection)
+                    head.CFrame = CFrame.new(headPosition) * (cameraCFrame - cameraPosition) * CFrame.new(objectSpaceVelocity)
+                end)
+                notify("CFly: ON")
+            else
+                if hum then hum.PlatformStand = false end
+                if head then head.Anchored = false end
+                notify("CFly: OFF")
+            end
         end
-    end
-})
+    })
 
     -- Infinite Jump
     Main:CreateToggle({
@@ -307,16 +302,13 @@ Main:CreateToggle({
 
     TeleportTab:CreateSection("Pilih pemain untuk teleport")
     local selectedPlayerName = nil
-    local function playerOptions()
-        return sortedPlayerNames()
-    end
+    local function playerOptions() return sortedPlayerNames() end
 
     local PlayerDropdown = TeleportTab:CreateDropdown({
         Name = "Pilih Pemain",
         Options = playerOptions(),
         CurrentOption = {},
         MultipleOptions = false,
-        Flag = "TeleportPlayerDropdown",
         Callback = function(option)
             selectedPlayerName = (typeof(option) == "table" and option[1]) or option
         end,
@@ -333,9 +325,7 @@ Main:CreateToggle({
         Name = "Teleport ke Pemain",
         Callback = function()
             if not selectedPlayerName or selectedPlayerName == "" then
-                notify("Pilih pemain terlebih dahulu.")
-                return
-            end
+                notify("Pilih pemain terlebih dahulu.") return end
             local target = Players:FindFirstChild(selectedPlayerName)
             if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
                 local hrp = getHRP()
@@ -359,15 +349,14 @@ Main:CreateToggle({
 
     -- Save & Teleport Pos
     TeleportTab:CreateSection("Save & Teleport Pos")
-    local savedSlots = { nil, nil, nil, nil, nil }
+    local savedSlots = {nil, nil, nil, nil, nil}
     local slotSelected = 1
 
-    local SlotDropdown = TeleportTab:CreateDropdown({
+    TeleportTab:CreateDropdown({
         Name = "Pilih Slot",
         Options = {"1","2","3","4","5"},
         CurrentOption = {"1"},
         MultipleOptions = false,
-        Flag = "SlotDropdown",
         Callback = function(opt)
             slotSelected = tonumber((typeof(opt) == "table" and opt[1]) or opt) or 1
         end
@@ -419,7 +408,6 @@ Main:CreateToggle({
         Options = sortedPlayerNames(),
         CurrentOption = {},
         MultipleOptions = false,
-        Flag = "SpectateDropdown",
         Callback = function(opt)
             spectateTargetName = (typeof(opt) == "table" and opt[1]) or opt
         end
@@ -436,18 +424,12 @@ Main:CreateToggle({
         Name = "Mulai Spectate",
         Callback = function()
             if not spectateTargetName or spectateTargetName == "" then
-                notify("Pilih pemain terlebih dahulu.")
-                return
-            end
+                notify("Pilih pemain terlebih dahulu.") return end
             local target = Players:FindFirstChild(spectateTargetName)
             if not target or not target.Character then
-                notify("Pemain tidak valid atau belum spawn.")
-                return
-            end
-
+                notify("Pemain tidak valid atau belum spawn.") return end
             if viewDiedConn then viewDiedConn:Disconnect(); viewDiedConn = nil end
             if viewChangedConn then viewChangedConn:Disconnect(); viewChangedConn = nil end
-
             Workspace.CurrentCamera.CameraSubject = target.Character
             viewDiedConn = target.CharacterAdded:Connect(function()
                 repeat task.wait() until target.Character and target.Character:FindFirstChild("HumanoidRootPart")
@@ -480,133 +462,24 @@ Main:CreateToggle({
         end
     })
 
-    -- FISH IT TAB
-    local function AddFishItTab()
-        if game.PlaceId ~= 121864768012064 then return end
-        if windows.FishIt then return end
-        notify("Game terdeteksi: Fish It. Tab khusus aktif!")
-
-        local ok, netRoot = pcall(function()
-            return ReplicatedStorage:WaitForChild("Packages"):WaitForChild("_Index")
-                :WaitForChild("sleitnick_net@0.2.0"):WaitForChild("net")
-        end)
-        if not ok or not netRoot then
-            notify("Gagal menemukan modul 'net' di ReplicatedStorage.")
-            return
-        end
-
-        local FishItTab = Window:CreateTab("Fish It", "fish")
-        windows.FishIt = FishItTab
-
-        flags.autofish = false
-        flags.perfectCast = true
-
-        local equipRemote = netRoot:FindFirstChild("RE/EquipToolFromHotbar")
-        local rodRemote = netRoot:FindFirstChild("RF/ChargeFishingRod")
-        local miniGameRemote = netRoot:FindFirstChild("RF/RequestFishingMinigameStarted")
-        local finishRemote = netRoot:FindFirstChild("RE/FishingCompleted")
-
-        FishItTab:CreateToggle({
-            Name = "Enable Auto Fish",
-            CurrentValue = false,
-            Callback = function(val)
-                flags.autofish = val
-                if val then
-                    task.spawn(function()
-                        while flags.autofish do
-                            if equipRemote and rodRemote and miniGameRemote and finishRemote then
-                                pcall(function()
-                                    equipRemote:FireServer(1)
-                                    task.wait(0.12)
-                                    local timestamp = flags.perfectCast and 9999999999 or tick()
-                                    rodRemote:InvokeServer(timestamp)
-                                    task.wait(0.12)
-                                    local x, y = -1.238, 0.969
-                                    if not flags.perfectCast then
-                                        x = math.random(-1000,1000)/1000
-                                        y = math.random(0,1000)/1000
-                                    end
-                                    miniGameRemote:InvokeServer(x, y)
-                                    task.wait(1.3)
-                                    finishRemote:FireServer()
-                                end)
-                            else
-                                notify("Remote fishing tidak lengkap (path/nama mungkin berubah).")
-                                flags.autofish = false
-                                break
-                            end
-                            for i=1,14 do
-                                if not flags.autofish then break end
-                                task.wait(0.1)
-                            end
-                        end
-                    end)
-                    notify("AutoFish: ON")
-                else
-                    notify("AutoFish: OFF")
-                end
+    -- UNLOAD SCRIPT
+    MiscTab:CreateSection("Unload Script")
+    MiscTab:CreateButton({
+        Name = "Unload Script",
+        Callback = function()
+            clearAllConns()
+            for _, win in pairs(windows) do
+                pcall(function() win:Destroy() end)
             end
-        })
-
-        FishItTab:CreateToggle({
-            Name = "Use Perfect Cast",
-            CurrentValue = true,
-            Callback = function(v) flags.perfectCast = v end
-        })
-
-        local islandCoords = {
-            { name = "Weather Machine", position = Vector3.new(-1471, -3, 1929) },
-            { name = "Esoteric Depths", position = Vector3.new(3157, -1303, 1439) },
-            { name = "Tropical Grove", position = Vector3.new(-2038, 3, 3650) },
-            { name = "Stingray Shores", position = Vector3.new(-32, 4, 2773) },
-            { name = "Kohana Volcano", position = Vector3.new(-519, 24, 189) },
-            { name = "Coral Reefs", position = Vector3.new(-3095, 1, 2177) },
-            { name = "Crater Island", position = Vector3.new(968, 1, 4854) },
-            { name = "Kohana", position = Vector3.new(-658, 3, 719) },
-            { name = "Winter Fest", position = Vector3.new(1611, 4, 3280) },
-            { name = "Isoteric Island", position = Vector3.new(1987, 4, 1400) },
-            { name = "Treasure Hall", position = Vector3.new(-3600, -267, -1558) },
-            { name = "Lost Shore", position = Vector3.new(-3663, 38, -989) },
-        }
-        table.sort(islandCoords, function(a,b) return a.name < b.name end)
-        local islandNames, nameToPos = {}, {}
-        for _, info in ipairs(islandCoords) do
-            table.insert(islandNames, info.name)
-            nameToPos[info.name] = info.position
+            windows = {}
+            notify("Script berhasil di-unload.")
+            task.wait(0.5)
+            script:Destroy()
         end
-
-        FishItTab:CreateDropdown({
-            Name = "Pilih Island",
-            Options = islandNames,
-            CurrentOption = {},
-            MultipleOptions = false,
-            Flag = "FishItIslandDropdown",
-            Callback = function(option)
-                local chosen = (typeof(option) == "table" and option[1]) or option
-                if not chosen then
-                    notify("Pilih island terlebih dahulu.")
-                    return
-                end
-                local pos = nameToPos[chosen]
-                if not pos then
-                    notify("Island tidak ditemukan: " .. tostring(chosen))
-                    return
-                end
-                local hrp = getHRP()
-                if hrp then
-                    hrp.CFrame = CFrame.new(pos + Vector3.new(0,5,0))
-                    notify("Teleport ke " .. chosen)
-                else
-                    notify("HumanoidRootPart tidak ditemukan.")
-                end
-            end
-        })
-    end
-
-    AddFishItTab()
+    })
 end
 
--- ===== Monitor PlaceId changes & reload UI =====
+-- Monitor PlaceId
 task.spawn(function()
     while task.wait(1.5) do
         if game.PlaceId ~= lastPlace then
@@ -619,6 +492,6 @@ task.spawn(function()
     end
 end)
 
--- Initial load
+-- Initial Load
 lastPlace = game.PlaceId
 CreateUI()
