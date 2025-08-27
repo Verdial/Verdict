@@ -95,6 +95,7 @@ local function CreateUI()
     local Window = Rayfield:CreateWindow({
         Name = "Verdict",
         LoadingTitle = "Verdict",
+        Theme = "Midnight",
         LoadingSubtitle = "Just a Simple Script ♡",
         ConfigurationSaving = { Enabled = false },
         KeySystem = false,
