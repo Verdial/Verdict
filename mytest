@@ -1,0 +1,214 @@
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
+
+-- State
+local conns, flags, selectedPlayer, customSpeed = {}, {}, nil, 16
+local originalLighting = {}
+
+-- Load WindUI
+local ok, WindUI = pcall(function()
+    return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/source.lua"))()
+end)
+if not ok or not WindUI then
+    warn("Gagal load WindUI!")
+    return
+end
+
+-- Helper
+local function getChar() return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait() end
+local function getHumanoid() local c=getChar() return c and c:FindFirstChildOfClass("Humanoid") end
+local function getHRP() local c=getChar() return c and c:FindFirstChild("HumanoidRootPart") end
+local function disconnect(name) if conns[name] then pcall(function() conns[name]:Disconnect() end) conns[name]=nil end end
+local function notify(msg) WindUI:Notify({Title="Verdict Hub",Content=tostring(msg),Duration=3}) end
+
+-- Floating button
+WindUI:CreateFloatingButton({
+    Name = "Verdict",
+    Callback = function()
+        if _G.MainWindow then
+            _G.MainWindow.Visible = not _G.MainWindow.Visible
+        end
+    end
+})
+
+-- Window
+local MainWindow = WindUI:CreateWindow({
+    Title = "Verdict Hub - WindUI",
+    Size = UDim2.new(0, 520, 0, 360)
+})
+_G.MainWindow = MainWindow
+
+------------------------------------------------
+-- MAIN TAB
+------------------------------------------------
+local Main = MainWindow:CreateTab({Name="Main"})
+
+Main:CreateToggle({
+    Name="God Mode",
+    Callback=function(state)
+        flags.god=state
+        disconnect("god")
+        if state then
+            conns.god = RunService.Heartbeat:Connect(function()
+                local hum=getHumanoid()
+                if hum and hum.Health < hum.MaxHealth then hum.Health=hum.MaxHealth end
+            end)
+        end
+    end
+})
+
+Main:CreateToggle({
+    Name="Noclip",
+    Callback=function(state)
+        flags.noclip=state
+        disconnect("noclip")
+        if state then
+            conns.noclip = RunService.Stepped:Connect(function()
+                for _,p in ipairs(getChar():GetChildren()) do
+                    if p:IsA("BasePart") then p.CanCollide=false end
+                end
+            end)
+        end
+    end
+})
+
+Main:CreateToggle({
+    Name="Speed Hack",
+    Callback=function(state)
+        flags.speed=state
+        local hum=getHumanoid()
+        if hum then hum.WalkSpeed=state and customSpeed or 16 end
+    end
+})
+
+Main:CreateSlider({
+    Name="Speed Value",
+    Min=16, Max=200, Default=16,
+    Callback=function(val)
+        customSpeed=val
+        if flags.speed then
+            local hum=getHumanoid()
+            if hum then hum.WalkSpeed=val end
+        end
+    end
+})
+
+Main:CreateToggle({
+    Name="Infinite Jump",
+    Callback=function(state)
+        flags.infjump=state
+        disconnect("infjump")
+        if state then
+            conns.infjump=UserInputService.JumpRequest:Connect(function()
+                local hum=getHumanoid()
+                if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+            end)
+        end
+    end
+})
+
+Main:CreateToggle({
+    Name="Fullbright",
+    Callback=function(state)
+        flags.fullbright=state
+        if state then
+            originalLighting.Brightness=Lighting.Brightness
+            originalLighting.Ambient=Lighting.Ambient
+            Lighting.Brightness=5
+            Lighting.Ambient=Color3.new(1,1,1)
+        else
+            if originalLighting.Brightness then
+                Lighting.Brightness=originalLighting.Brightness
+                Lighting.Ambient=originalLighting.Ambient
+            end
+        end
+    end
+})
+
+Main:CreateToggle({
+    Name="Click TP",
+    Callback=function(state)
+        flags.clicktp=state
+        disconnect("clicktp")
+        if state then
+            local mouse=LocalPlayer:GetMouse()
+            conns.clicktp=mouse.Button1Down:Connect(function()
+                local hrp=getHRP()
+                if hrp and mouse.Hit then
+                    hrp.CFrame=CFrame.new(mouse.Hit.Position+Vector3.new(0,5,0))
+                end
+            end)
+        end
+    end
+})
+
+------------------------------------------------
+-- TELEPORT TAB
+------------------------------------------------
+local Tele = MainWindow:CreateTab({Name="Teleport"})
+
+Tele:CreateTextbox({
+    Name="Target Player",
+    Placeholder="Ketik nama player",
+    Callback=function(txt)
+        selectedPlayer = txt ~= "" and txt or nil
+    end
+})
+
+Tele:CreateButton({
+    Name="Teleport",
+    Callback=function()
+        if not selectedPlayer then return notify("Belum pilih player!") end
+        local t=Players:FindFirstChild(selectedPlayer)
+        if t and t.Character and t.Character:FindFirstChild("HumanoidRootPart") then
+            local hrp=getHRP()
+            if hrp then hrp.CFrame=t.Character.HumanoidRootPart.CFrame+Vector3.new(0,3,0) end
+        else
+            notify("Player tidak ditemukan!")
+        end
+    end
+})
+
+------------------------------------------------
+-- SPECTATE TAB
+------------------------------------------------
+local Spec = MainWindow:CreateTab({Name="Spectate"})
+
+Spec:CreateButton({
+    Name="Spectate",
+    Callback=function()
+        if not selectedPlayer then return notify("Belum pilih player!") end
+        local t=Players:FindFirstChild(selectedPlayer)
+        if t and t.Character then
+            Workspace.CurrentCamera.CameraSubject = t.Character:FindFirstChildOfClass("Humanoid")
+        else
+            notify("Player tidak ditemukan!")
+        end
+    end
+})
+
+Spec:CreateButton({
+    Name="Stop Spectating",
+    Callback=function()
+        Workspace.CurrentCamera.CameraSubject=getHumanoid()
+    end
+})
+
+------------------------------------------------
+-- MISC TAB
+------------------------------------------------
+local Misc = MainWindow:CreateTab({Name="Misc"})
+
+Misc:CreateButton({
+    Name="Unload Script",
+    Callback=function()
+        for k,_ in pairs(conns) do disconnect(k) end
+        MainWindow.Visible=false
+        notify("Unloaded")
+    end
+})
