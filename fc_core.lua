@@ -44,8 +44,7 @@ function FreeCam:Enable()
     cam.CameraType = Enum.CameraType.Scriptable
     camPos = (getChar() and getChar():FindFirstChild("HumanoidRootPart") and getChar().HumanoidRootPart.Position) or Vector3.zero
     rotX, rotY, camVel = 0, 0, Vector3.zero
-    
-    -- ✅ Simpan FOV asli kamera
+
     defaultFOV = cam.FieldOfView
     targetFOV = defaultFOV
 
@@ -58,7 +57,6 @@ function FreeCam:Enable()
     moveInput = {Forward=false, Back=false, Left=false, Right=false, Up=false, Down=false}
     fovInput = {Increase=false, Decrease=false}
 
-    -- Movement Pad
     local dpadFrame = Instance.new("Frame")
     dpadFrame.Size = UDim2.fromScale(0.25, 0.25)
     dpadFrame.Position = UDim2.fromScale(0.2, 0.8)
@@ -73,7 +71,6 @@ function FreeCam:Enable()
     makeCircleBtn("+", UDim2.fromScale(0.2, 0.2), UDim2.fromScale(0.2, 0.2), dpadFrame, function(s) moveInput.Up = s end)
     makeCircleBtn("-", UDim2.fromScale(0.8, 0.8), UDim2.fromScale(0.2, 0.2), dpadFrame, function(s) moveInput.Down = s end)
 
-    -- FOV Pad
     local fovFrame = Instance.new("Frame")
     fovFrame.Size = UDim2.fromScale(0.1, 0.25)
     fovFrame.Position = UDim2.fromScale(0.9, 0.8)
@@ -84,7 +81,6 @@ function FreeCam:Enable()
     makeCircleBtn("+", UDim2.fromScale(0.5, 0.3), UDim2.fromScale(0.7, 0.35), fovFrame, function(s) fovInput.Increase = s end)
     makeCircleBtn("-", UDim2.fromScale(0.5, 0.7), UDim2.fromScale(0.7, 0.35), fovFrame, function(s) fovInput.Decrease = s end)
 
-    -- Touch Drag
     local isDragging, lastPos = false, nil
     conns.TouchStart = UIS.InputBegan:Connect(function(input, gpe)
         if gpe then return end
@@ -104,12 +100,9 @@ function FreeCam:Enable()
         end
     end)
 
-    -- Render Loop
     conns.FreeCam = RunService.RenderStepped:Connect(function(dt)
         if fovInput.Increase then targetFOV = math.clamp(targetFOV + dt * 60, 0, 120) end
         if fovInput.Decrease then targetFOV = math.clamp(targetFOV - dt * 60, 0, 120) end
-        
-        -- ✅ Perbaikan: gunakan "=" bukan "+="
         cam.FieldOfView = cam.FieldOfView + (targetFOV - cam.FieldOfView) * dt * 10
 
         local yaw = CFrame.Angles(0, math.rad(rotX), 0)
@@ -137,8 +130,6 @@ function FreeCam:Disable()
     local cam = Workspace.CurrentCamera
     cam.CameraType = Enum.CameraType.Custom
     cam.CameraSubject = getHum() or getChar()
-    
-    -- ✅ Balikin FOV ke nilai asli
     cam.FieldOfView = defaultFOV
 end
 
