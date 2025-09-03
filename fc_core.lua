@@ -44,7 +44,10 @@ function FreeCam:Enable()
     cam.CameraType = Enum.CameraType.Scriptable
     camPos = (getChar() and getChar():FindFirstChild("HumanoidRootPart") and getChar().HumanoidRootPart.Position) or Vector3.zero
     rotX, rotY, camVel = 0, 0, Vector3.zero
-    defaultFOV, targetFOV = cam.FieldOfView, cam.FieldOfView
+    
+    -- ✅ Simpan FOV asli kamera
+    defaultFOV = cam.FieldOfView
+    targetFOV = defaultFOV
 
     freeCamUI = Instance.new("ScreenGui")
     freeCamUI.Name = "FreeCamUI"
@@ -105,7 +108,9 @@ function FreeCam:Enable()
     conns.FreeCam = RunService.RenderStepped:Connect(function(dt)
         if fovInput.Increase then targetFOV = math.clamp(targetFOV + dt * 60, 0, 120) end
         if fovInput.Decrease then targetFOV = math.clamp(targetFOV - dt * 60, 0, 120) end
-        cam.FieldOfView += (targetFOV - cam.FieldOfView) * dt * 10
+        
+        -- ✅ Perbaikan: gunakan "=" bukan "+="
+        cam.FieldOfView = cam.FieldOfView + (targetFOV - cam.FieldOfView) * dt * 10
 
         local yaw = CFrame.Angles(0, math.rad(rotX), 0)
         local pitch = CFrame.Angles(math.rad(rotY), 0, 0)
@@ -132,6 +137,8 @@ function FreeCam:Disable()
     local cam = Workspace.CurrentCamera
     cam.CameraType = Enum.CameraType.Custom
     cam.CameraSubject = getHum() or getChar()
+    
+    -- ✅ Balikin FOV ke nilai asli
     cam.FieldOfView = defaultFOV
 end
 
