@@ -13,51 +13,57 @@ local Workspace   = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 
 -- State
-local conns, flags, savedSlots = {}, {}, table.create(5)
-local originalLighting = {}
+local conns, flags, savedSlots, originalLighting = {}, {}, table.create(5), {}
 
 -- Helpers
 local function safeDisconnect(c)
     if c and c.Connected then pcall(c.Disconnect, c) end
 end
+
 local function clearAll()
     for k, v in pairs(conns) do
         safeDisconnect(v)
         conns[k] = nil
     end
 end
+
 local function getChar()
     return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 end
-local function getHum(char)
-    char = char or getChar()
-    return char:FindFirstChildOfClass("Humanoid")
+
+local function getHum(c)
+    c = c or getChar()
+    return c:FindFirstChildOfClass("Humanoid")
 end
-local function getHRP(char)
-    char = char or getChar()
-    return char:FindFirstChild("HumanoidRootPart")
+
+local function getHRP(c)
+    c = c or getChar()
+    return c:FindFirstChild("HumanoidRootPart")
 end
-local function sortedPlayers()
-    local list = {}
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then
-            list[#list+1] = p.Name
-        end
-    end
-    table.sort(list)
-    return list
-end
-local function restoreLighting()
-    for k, v in pairs(originalLighting) do
-        Lighting[k] = v
-    end
-end
+
 local function teleportTo(cf)
     local hrp = getHRP()
     if hrp then hrp.CFrame = cf end
 end
 
--- Load WindUI
+local function restoreLighting()
+    for k, v in pairs(originalLighting) do
+        Lighting[k] = v
+    end
+end
+
+local function sortedPlayers()
+    local list = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            table.insert(list, p.Name)
+        end
+    end
+    table.sort(list)
+    return list
+end
+
+-- UI Init
 local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 WindUI:ToggleAcrylic(false)
 
@@ -68,14 +74,13 @@ local Window = WindUI:CreateWindow({
     Size = UDim2.fromOffset(360, 400),
     Theme = "Dark",
     SideBarWidth = 120,
-    Draggable = false,
+    Draggable = false
 })
 
 -- Main Tab
-local MainTab = Window:Tab({Title = "Main", Icon = "zap"})
+local MainTab = Window:Tab({ Title = "Main", Icon = "zap" })
 
--- Section Player
-MainTab:Section({Title = "Player"})
+MainTab:Section({ Title = "Player" })
 
 MainTab:Toggle({
     Title = "GodMode",
@@ -129,14 +134,15 @@ MainTab:Toggle({
         if v then
             conns.infiniteJump = UIS.JumpRequest:Connect(function()
                 local hum = getHum()
-                if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+                if hum then
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                end
             end)
         end
     end
 })
 
--- Section Visual
-MainTab:Section({Title = "Visual"})
+MainTab:Section({ Title = "Visual" })
 
 MainTab:Toggle({
     Title = "Fullbright",
@@ -149,14 +155,14 @@ MainTab:Toggle({
                 ClockTime     = Lighting.ClockTime,
                 FogEnd        = Lighting.FogEnd,
                 GlobalShadows = Lighting.GlobalShadows,
-                Ambient       = Lighting.Ambient,
+                Ambient       = Lighting.Ambient
             }
             conns.Fullbright = RunService.RenderStepped:Connect(function()
-                Lighting.Brightness = 2
-                Lighting.ClockTime = 14
-                Lighting.FogEnd = 1e9
+                Lighting.Brightness    = 2
+                Lighting.ClockTime     = 14
+                Lighting.FogEnd        = 1e9
                 Lighting.GlobalShadows = false
-                Lighting.Ambient = Color3.new(1, 1, 1)
+                Lighting.Ambient       = Color3.new(1, 1, 1)
             end)
         else
             restoreLighting()
@@ -164,8 +170,7 @@ MainTab:Toggle({
     end
 })
 
--- Section Utility
-MainTab:Section({Title = "Utility"})
+MainTab:Section({ Title = "Utility" })
 
 MainTab:Toggle({
     Title = "Click Teleport",
@@ -185,15 +190,17 @@ MainTab:Toggle({
 })
 
 -- Teleport Tab
-local TeleportTab = Window:Tab({Title = "Teleport", Icon = "map"})
-TeleportTab:Section({Title = "Player Teleport"})
+local TeleportTab = Window:Tab({ Title = "Teleport", Icon = "map" })
+TeleportTab:Section({ Title = "Player Teleport" })
 
 local selectedPlayerName
 local TeleportDropdown = TeleportTab:Dropdown({
     Title = "Pilih Pemain",
     Values = sortedPlayers(),
     Searchable = true,
-    Callback = function(opt) selectedPlayerName = opt end
+    Callback = function(opt)
+        selectedPlayerName = opt
+    end
 })
 
 TeleportTab:Button({
@@ -219,17 +226,18 @@ TeleportTab:Button({
 })
 
 -- Misc Tab
-local MiscTab = Window:Tab({Title = "Misc", Icon = "eye"})
+local MiscTab = Window:Tab({ Title = "Misc", Icon = "eye" })
 
--- Section Spectate
-MiscTab:Section({Title = "Spectate"})
+MiscTab:Section({ Title = "Spectate" })
+
 local spectateTargetName
-
 local SpectateDropdown = MiscTab:Dropdown({
     Title = "Spectate Player",
     Values = sortedPlayers(),
     Searchable = true,
-    Callback = function(opt) spectateTargetName = opt end
+    Callback = function(opt)
+        spectateTargetName = opt
+    end
 })
 
 MiscTab:Button({
@@ -260,22 +268,25 @@ MiscTab:Button({
     end
 })
 
--- Section Position
-MiscTab:Section({Title = "Position"})
-local slotSelected = 1
+MiscTab:Section({ Title = "Position" })
 
+local slotSelected = 1
 MiscTab:Dropdown({
     Title = "Pilih Slot",
-    Values = {"1","2","3","4","5"},
+    Values = { "1", "2", "3", "4", "5" },
     Value = "1",
-    Callback = function(opt) slotSelected = tonumber(opt) end
+    Callback = function(opt)
+        slotSelected = tonumber(opt)
+    end
 })
 
 MiscTab:Button({
     Title = "Save Pos",
     Callback = function()
         local hrp = getHRP()
-        if hrp then savedSlots[slotSelected] = hrp.Position end
+        if hrp then
+            savedSlots[slotSelected] = hrp.Position
+        end
     end
 })
 
@@ -283,41 +294,42 @@ MiscTab:Button({
     Title = "Teleport Pos",
     Callback = function()
         local pos = savedSlots[slotSelected]
-        if pos then teleportTo(CFrame.new(pos + Vector3.new(0, 5, 0))) end
+        if pos then
+            teleportTo(CFrame.new(pos + Vector3.new(0, 5, 0)))
+        end
     end
 })
 
-MiscTab:Button({Title = "Clear Slot", Callback = function() savedSlots[slotSelected] = nil end})
-MiscTab:Button({Title = "Clear All Slots", Callback = function() table.clear(savedSlots) end})
+MiscTab:Button({
+    Title = "Clear Slot",
+    Callback = function()
+        savedSlots[slotSelected] = nil
+    end
+})
 
--- Section Free Cam (pakai freecam kamu sendiri)
-MiscTab:Section({Title = "Free Cam"})
+MiscTab:Button({
+    Title = "Clear All Slots",
+    Callback = function()
+        table.clear(savedSlots)
+    end
+})
+
+MiscTab:Section({ Title = "Free Cam" })
 
 local FreeCam = loadstring(game:HttpGet("https://raw.githubusercontent.com/Verdial/Verdict/refs/heads/main/fc_core.lua"))()
-
 MiscTab:Toggle({
     Title = "Free Cam",
     Default = false,
     Callback = function(v)
         if v then
             FreeCam:Enable()
-            game.StarterGui:SetCore("SendNotification",{
-                Title = "Free Cam",
-                Text = "Aktif ✅",
-                Duration = 1
-            })
         else
             FreeCam:Disable()
-            game.StarterGui:SetCore("SendNotification",{
-                Title = "Free Cam",
-                Text = "Nonaktif ❌",
-                Duration = 1
-            })
         end
     end
 })
 
--- Unload Logic
+-- Unload
 function Window:Unload()
     clearAll()
     Workspace.CurrentCamera.CameraSubject = getHum() or getChar()
