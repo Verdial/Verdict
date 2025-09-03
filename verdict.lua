@@ -17,20 +17,47 @@ local conns, flags, savedSlots = {}, {}, table.create(5)
 local originalLighting = {}
 
 -- Helpers
-local function safeDisconnect(c) if c and c.Connected then pcall(c.Disconnect, c) end end
-local function clearAll() for k, v in pairs(conns) do safeDisconnect(v) conns[k] = nil end end
-local function getChar() return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait() end
-local function getHum(char) char = char or getChar() return char:FindFirstChildOfClass("Humanoid") end
-local function getHRP(char) char = char or getChar() return char:FindFirstChild("HumanoidRootPart") end
+local function safeDisconnect(c)
+    if c and c.Connected then pcall(c.Disconnect, c) end
+end
+local function clearAll()
+    for k, v in pairs(conns) do
+        safeDisconnect(v)
+        conns[k] = nil
+    end
+end
+local function getChar()
+    return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+end
+local function getHum(char)
+    char = char or getChar()
+    return char:FindFirstChildOfClass("Humanoid")
+end
+local function getHRP(char)
+    char = char or getChar()
+    return char:FindFirstChild("HumanoidRootPart")
+end
 local function sortedPlayers()
     local list = {}
-    for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then list[#list+1] = p.Name end end
-    table.sort(list) return list
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            list[#list+1] = p.Name
+        end
+    end
+    table.sort(list)
+    return list
 end
-local function restoreLighting() for k, v in pairs(originalLighting) do Lighting[k] = v end end
-local function teleportTo(cf) local hrp = getHRP() if hrp then hrp.CFrame = cf end end
+local function restoreLighting()
+    for k, v in pairs(originalLighting) do
+        Lighting[k] = v
+    end
+end
+local function teleportTo(cf)
+    local hrp = getHRP()
+    if hrp then hrp.CFrame = cf end
+end
 
--- UI Init
+-- Load WindUI
 local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 WindUI:ToggleAcrylic(false)
 
@@ -60,7 +87,10 @@ MainTab:Toggle({
         if not hum then return end
         if v then
             conns.God = hum.HealthChanged:Connect(function()
-                if hum.Health <= 0 then task.wait() hum.Health = hum.MaxHealth end
+                if hum.Health <= 0 then
+                    task.wait()
+                    hum.Health = hum.MaxHealth
+                end
             end)
         end
     end
@@ -75,12 +105,16 @@ MainTab:Toggle({
         if v then
             conns.Noclip = RunService.Stepped:Connect(function()
                 for _, part in ipairs(getChar():GetChildren()) do
-                    if part:IsA("BasePart") then part.CanCollide = false end
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
                 end
             end)
         else
             for _, part in ipairs(getChar():GetChildren()) do
-                if part:IsA("BasePart") then part.CanCollide = true end
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
             end
         end
     end
@@ -167,7 +201,9 @@ TeleportTab:Button({
     Callback = function()
         local target = selectedPlayerName and Players:FindFirstChild(selectedPlayerName)
         local targetHRP = target and getHRP(target.Character)
-        if targetHRP then teleportTo(targetHRP.CFrame + Vector3.new(0, 3, 0)) end
+        if targetHRP then
+            teleportTo(targetHRP.CFrame + Vector3.new(0, 3, 0))
+        end
     end
 })
 
@@ -200,13 +236,17 @@ MiscTab:Button({
     Title = "Mulai Spectate",
     Callback = function()
         local target = spectateTargetName and Players:FindFirstChild(spectateTargetName)
-        if target and target.Character then Workspace.CurrentCamera.CameraSubject = target.Character end
+        if target and target.Character then
+            Workspace.CurrentCamera.CameraSubject = target.Character
+        end
     end
 })
 
 MiscTab:Button({
     Title = "Berhenti Spectate",
-    Callback = function() Workspace.CurrentCamera.CameraSubject = getHum() or getChar() end
+    Callback = function()
+        Workspace.CurrentCamera.CameraSubject = getHum() or getChar()
+    end
 })
 
 MiscTab:Button({
@@ -250,21 +290,37 @@ MiscTab:Button({
 MiscTab:Button({Title = "Clear Slot", Callback = function() savedSlots[slotSelected] = nil end})
 MiscTab:Button({Title = "Clear All Slots", Callback = function() table.clear(savedSlots) end})
 
--- Section Free Cam (dipisah ke file lain)
+-- Section Free Cam (pakai freecam kamu sendiri)
 MiscTab:Section({Title = "Free Cam"})
 
-local FreeCam = loadstring(game:HttpGet("https://raw.githubusercontent.com/Verdial/Verdict/refs/heads/main/fc_core.lua"))()
+local FreeCam = loadstring(game:HttpGet("RAW_LINK_FREECAM_KAMU"))()
 
 MiscTab:Toggle({
     Title = "Free Cam",
     Default = false,
-    Callback = function(v) if v then FreeCam:Enable() else FreeCam:Disable() end end
+    Callback = function(v)
+        if v then
+            FreeCam:Enable()
+            game.StarterGui:SetCore("SendNotification",{
+                Title = "Free Cam",
+                Text = "Aktif ✅",
+                Duration = 1
+            })
+        else
+            FreeCam:Disable()
+            game.StarterGui:SetCore("SendNotification",{
+                Title = "Free Cam",
+                Text = "Nonaktif ❌",
+                Duration = 1
+            })
+        end
+    end
 })
 
 -- Unload Logic
 function Window:Unload()
     clearAll()
-    FreeCam:Disable()
+    Workspace.CurrentCamera.CameraSubject = getHum() or getChar()
     _G.VerdictWindUI = nil
 end
 
