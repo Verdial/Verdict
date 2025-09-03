@@ -4,7 +4,8 @@ local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
-local freeCamUI, camPos, rotX, rotY, camVel, defaultFOV, targetFOV
+local freeCamUI, camPos, rotX, rotY, camVel
+local defaultFOV, targetFOV
 local conns, moveInput, fovInput = {}, {}, {}
 
 local function safeDisconnect(c)
@@ -45,6 +46,7 @@ function FreeCam:Enable()
     camPos = (getChar() and getChar():FindFirstChild("HumanoidRootPart") and getChar().HumanoidRootPart.Position) or Vector3.zero
     rotX, rotY, camVel = 0, 0, Vector3.zero
 
+    -- simpan FOV asli hanya saat enable
     defaultFOV = cam.FieldOfView
     targetFOV = defaultFOV
 
@@ -101,8 +103,8 @@ function FreeCam:Enable()
     end)
 
     conns.FreeCam = RunService.RenderStepped:Connect(function(dt)
-        if fovInput.Increase then targetFOV = math.clamp(targetFOV + dt * 60, 0, 120) end
-        if fovInput.Decrease then targetFOV = math.clamp(targetFOV - dt * 60, 0, 120) end
+        if fovInput.Increase then targetFOV = math.clamp(targetFOV + dt * 60, 10, 120) end
+        if fovInput.Decrease then targetFOV = math.clamp(targetFOV - dt * 60, 10, 120) end
         cam.FieldOfView = cam.FieldOfView + (targetFOV - cam.FieldOfView) * dt * 10
 
         local yaw = CFrame.Angles(0, math.rad(rotX), 0)
@@ -130,7 +132,11 @@ function FreeCam:Disable()
     local cam = Workspace.CurrentCamera
     cam.CameraType = Enum.CameraType.Custom
     cam.CameraSubject = getHum() or getChar()
-    cam.FieldOfView = defaultFOV
+
+    -- hanya balikin FOV kalau sebelumnya Enable pernah dijalankan
+    if defaultFOV then
+        cam.FieldOfView = defaultFOV
+    end
 end
 
 return FreeCam
