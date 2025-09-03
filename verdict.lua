@@ -14,7 +14,10 @@ local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 
 -- State
 local conns, flags, savedSlots = {}, {}, table.create(5)
-local originalLighting = {}
+local originalLighting, freeCamUI = {}, nil
+local camPos, rotX, rotY, camVel = nil, 0, 0, Vector3.zero
+local defaultFOV, targetFOV, fovInput = 70, 70, {Increase=false, Decrease=false}
+local moveInput = {Forward=false, Back=false, Left=false, Right=false, Up=false, Down=false}
 
 -- Helpers
 local function safeDisconnect(c)
@@ -76,60 +79,38 @@ local Window = WindUI:CreateWindow({
     Theme = "Dark",
     SideBarWidth = 120,
     Draggable = false,
-    ShowOpenButton = false,
 })
 
 -- Main Tab
 local MainTab = Window:Tab({Title = "Main", Icon = "zap"})
 
--- GodMode (Server Side)
+-- GodMode
 MainTab:Toggle({
-    Title = "GodMode (Server Side)",
+    Title = "GodMode",
     Default = false,
     Callback = function(v)
         flags.God = v
         safeDisconnect(conns.God)
-        safeDisconnect(conns.GodRegen)
-        safeDisconnect(conns.NoDeath)
-
         local hum = getHum()
         if not hum then return end
-
         if v then
-            hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
-
-            conns.God = hum:GetPropertyChangedSignal("Health"):Connect(function()
-                if hum.Health < hum.MaxHealth then
+            conns.God = hum.HealthChanged:Connect(function()
+                if hum.Health <= 0 then
+                    task.wait()
                     hum.Health = hum.MaxHealth
                 end
             end)
-
-            conns.GodRegen = RunService.Heartbeat:Connect(function()
-                if hum.Health < hum.MaxHealth then
-                    hum.Health = hum.MaxHealth
-                end
-            end)
-
-            conns.NoDeath = hum.StateChanged:Connect(function(_, newState)
-                if newState == Enum.HumanoidStateType.Dead then
-                    hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-                    hum.Health = hum.MaxHealth
-                end
-            end)
-        else
-            hum:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
         end
     end
 })
 
 -- Noclip
 MainTab:Toggle({
-    Title = "Noclip",
+    Title = "No Clip",
     Default = false,
     Callback = function(v)
         flags.noclip = v
         safeDisconnect(conns.Noclip)
-
         if v then
             conns.Noclip = RunService.Stepped:Connect(function()
                 for _, part in ipairs(getChar():GetChildren()) do
@@ -155,7 +136,6 @@ MainTab:Toggle({
     Callback = function(v)
         flags.infiniteJump = v
         safeDisconnect(conns.infiniteJump)
-
         if v then
             conns.infiniteJump = UIS.JumpRequest:Connect(function()
                 local hum = getHum()
@@ -170,6 +150,7 @@ MainTab:Toggle({
     Title = "Fullbright",
     Default = false,
     Callback = function(v)
+        safeDisconnect(conns.Fullbright)
         if v then
             originalLighting = {
                 Brightness    = Lighting.Brightness,
@@ -178,10 +159,13 @@ MainTab:Toggle({
                 GlobalShadows = Lighting.GlobalShadows,
                 Ambient       = Lighting.Ambient,
             }
-            Lighting.Brightness, Lighting.ClockTime, Lighting.FogEnd =
-                2, 14, 1e9
-            Lighting.GlobalShadows, Lighting.Ambient =
-                false, Color3.new(1, 1, 1)
+            conns.Fullbright = RunService.RenderStepped:Connect(function()
+                Lighting.Brightness = 2
+                Lighting.ClockTime = 14
+                Lighting.FogEnd = 1e9
+                Lighting.GlobalShadows = false
+                Lighting.Ambient = Color3.new(1, 1, 1)
+            end)
         else
             restoreLighting()
         end
@@ -195,7 +179,6 @@ MainTab:Toggle({
     Callback = function(v)
         flags.clickTeleport = v
         safeDisconnect(conns.clickTeleport)
-
         if v then
             local mouse = LocalPlayer:GetMouse()
             conns.clickTeleport = mouse.Button1Down:Connect(function()
@@ -210,7 +193,6 @@ MainTab:Toggle({
 -- Teleport Tab
 local TeleportTab = Window:Tab({Title = "Teleport", Icon = "map"})
 local selectedPlayerName
-
 local TeleportDropdown = TeleportTab:Dropdown({
     Title = "Pilih Pemain",
     Values = sortedPlayers(),
@@ -240,11 +222,12 @@ TeleportTab:Button({
     end
 })
 
--- Misc Tab (Spectate + Save Pos)
+-- Misc Tab
 local MiscTab = Window:Tab({Title = "Misc", Icon = "eye"})
 local spectateTargetName
 local slotSelected = 1
 
+-- Spectate
 local SpectateDropdown = MiscTab:Dropdown({
     Title = "Spectate Player",
     Values = sortedPlayers(),
@@ -280,7 +263,7 @@ MiscTab:Button({
     end
 })
 
--- Save Pos langsung di Misc
+-- Save/Load Position
 MiscTab:Dropdown({
     Title = "Pilih Slot",
     Values = {"1","2","3","4","5"},
@@ -304,24 +287,137 @@ MiscTab:Button({
     end
 })
 
-MiscTab:Button({
-    Title = "Clear Slot",
-    Callback = function()
-        savedSlots[slotSelected] = nil
-    end
-})
+MiscTab:Button({Title = "Clear Slot", Callback = function() savedSlots[slotSelected] = nil end})
+MiscTab:Button({Title = "Clear All Slots", Callback = function() table.clear(savedSlots) end})
 
-MiscTab:Button({
-    Title = "Clear All Slots",
-    Callback = function()
-        table.clear(savedSlots)
-    end
+-- FreeCam
+local function makeCircleBtn(text, pos, size, parent, callback)
+    local btn = Instance.new("TextButton")
+    btn.Size, btn.Position = size, pos
+    btn.AnchorPoint = Vector2.new(0.5, 0.5)
+    btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    btn.BackgroundTransparency = 0.4
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Text, btn.Font, btn.TextSize = text, Enum.Font.GothamBold, 22
+    btn.Parent = parent
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(1, 0)
+    corner.Parent = btn
+    btn.MouseButton1Down:Connect(function() callback(true) end)
+    btn.MouseButton1Up:Connect(function() callback(false) end)
+    return btn
+end
+
+local function enableFreeCam()
+    local cam = Workspace.CurrentCamera
+    cam.CameraType = Enum.CameraType.Scriptable
+    camPos = (getHRP() and getHRP().Position) or Vector3.zero
+    rotX, rotY, camVel = 0, 0, Vector3.zero
+    defaultFOV = cam.FieldOfView
+    targetFOV = defaultFOV
+
+    freeCamUI = Instance.new("ScreenGui")
+    freeCamUI.Name = "FreeCamUI"
+    freeCamUI.ResetOnSpawn = false
+    freeCamUI.IgnoreGuiInset = true
+    freeCamUI.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+    -- Movement Pad
+    local dpadFrame = Instance.new("Frame")
+    dpadFrame.Size = UDim2.fromScale(0.25, 0.25)
+    dpadFrame.Position = UDim2.fromScale(0.2, 0.8)
+    dpadFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    dpadFrame.BackgroundTransparency = 1
+    dpadFrame.Parent = freeCamUI
+
+    makeCircleBtn("▲", UDim2.fromScale(0.5, 0.2), UDim2.fromScale(0.25, 0.25), dpadFrame, function(s) moveInput.Forward = s end)
+    makeCircleBtn("▼", UDim2.fromScale(0.5, 0.8), UDim2.fromScale(0.25, 0.25), dpadFrame, function(s) moveInput.Back = s end)
+    makeCircleBtn("◀", UDim2.fromScale(0.2, 0.5), UDim2.fromScale(0.25, 0.25), dpadFrame, function(s) moveInput.Left = s end)
+    makeCircleBtn("▶", UDim2.fromScale(0.8, 0.5), UDim2.fromScale(0.25, 0.25), dpadFrame, function(s) moveInput.Right = s end)
+    makeCircleBtn("+", UDim2.fromScale(0.2, 0.2), UDim2.fromScale(0.2, 0.2), dpadFrame, function(s) moveInput.Up = s end)
+    makeCircleBtn("-", UDim2.fromScale(0.8, 0.8), UDim2.fromScale(0.2, 0.2), dpadFrame, function(s) moveInput.Down = s end)
+
+    -- FOV Pad
+    local fovFrame = Instance.new("Frame")
+    fovFrame.Size = UDim2.fromScale(0.1, 0.25)
+    fovFrame.Position = UDim2.fromScale(0.9, 0.8)
+    fovFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    fovFrame.BackgroundTransparency = 1
+    fovFrame.Parent = freeCamUI
+
+    makeCircleBtn("+", UDim2.fromScale(0.5, 0.3), UDim2.fromScale(0.7, 0.35), fovFrame, function(s) fovInput.Increase = s end)
+    makeCircleBtn("-", UDim2.fromScale(0.5, 0.7), UDim2.fromScale(0.7, 0.35), fovFrame, function(s) fovInput.Decrease = s end)
+
+    -- Touch Drag
+    local isDragging, lastPos = false, nil
+    conns.TouchStart = UIS.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        if input.UserInputType == Enum.UserInputType.Touch and input.Position.X > cam.ViewportSize.X/2 then
+            isDragging, lastPos = true, input.Position
+        end
+    end)
+    conns.TouchEnd = UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch then isDragging = false end
+    end)
+    conns.TouchMove = UIS.InputChanged:Connect(function(input, gpe)
+        if isDragging and input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - lastPos
+            lastPos = input.Position
+            rotX -= delta.X * 0.2
+            rotY = math.clamp(rotY - delta.Y * 0.2, -80, 80)
+        end
+    end)
+
+    -- Render Loop
+    conns.FreeCam = RunService.RenderStepped:Connect(function(dt)
+        -- Update FOV
+        if fovInput.Increase then targetFOV = math.clamp(targetFOV + dt * 60, 0, 120) end
+        if fovInput.Decrease then targetFOV = math.clamp(targetFOV - dt * 60, 0, 120) end
+        cam.FieldOfView += (targetFOV - cam.FieldOfView) * dt * 10
+
+        -- Rotation
+        local yaw = CFrame.Angles(0, math.rad(rotX), 0)
+        local pitch = CFrame.Angles(math.rad(rotY), 0, 0)
+        local look = yaw * pitch
+
+        -- Movement
+        local dir = Vector3.zero
+        if moveInput.Forward then dir += look.LookVector end
+        if moveInput.Back then dir -= look.LookVector end
+        if moveInput.Left then dir -= look.RightVector end
+        if moveInput.Right then dir += look.RightVector end
+        if moveInput.Up then dir += Vector3.yAxis end
+        if moveInput.Down then dir -= Vector3.yAxis end
+
+        camVel = camVel:Lerp(dir * 40, dt * 5)
+        camPos += camVel * dt
+        cam.CFrame = CFrame.lookAt(camPos, camPos + look.LookVector)
+    end)
+end
+
+local function disableFreeCam()
+    if freeCamUI then freeCamUI:Destroy() freeCamUI = nil end
+    safeDisconnect(conns.FreeCam)
+    safeDisconnect(conns.TouchStart)
+    safeDisconnect(conns.TouchEnd)
+    safeDisconnect(conns.TouchMove)
+    Workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+    Workspace.CurrentCamera.CameraSubject = getHum() or getChar()
+    Workspace.CurrentCamera.FieldOfView = defaultFOV
+end
+
+MiscTab:Toggle({
+    Title = "Free Cam",
+    Default = false,
+    Callback = function(v) if v then enableFreeCam() else disableFreeCam() end end
 })
 
 -- Unload Logic
 function Window:Unload()
     clearAll()
+    if freeCamUI then freeCamUI:Destroy() freeCamUI = nil end
     Workspace.CurrentCamera.CameraSubject = getHum() or getChar()
+    Workspace.CurrentCamera.FieldOfView = defaultFOV
     _G.VerdictWindUI = nil
 end
 
