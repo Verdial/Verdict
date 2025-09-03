@@ -293,7 +293,7 @@ MiscTab:Button({Title = "Clear All Slots", Callback = function() table.clear(sav
 -- Section Free Cam (pakai freecam kamu sendiri)
 MiscTab:Section({Title = "Free Cam"})
 
-local FreeCam = loadstring(game:HttpGet("RAW_LINK_FREECAM_KAMU"))()
+local FreeCam = loadstring(game:HttpGet("https://raw.githubusercontent.com/Verdial/Verdict/refs/heads/main/fc_core.lua"))()
 
 MiscTab:Toggle({
     Title = "Free Cam",
