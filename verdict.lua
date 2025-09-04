@@ -1,23 +1,26 @@
--- Cleanup
+--// Cleanup
 if _G.VerdictWindUI then
     _G.VerdictWindUI:Unload()
     _G.VerdictWindUI = nil
 end
 
--- Services
+--// Services
 local Players     = game:GetService("Players")
 local RunService  = game:GetService("RunService")
 local UIS         = game:GetService("UserInputService")
 local Lighting    = game:GetService("Lighting")
 local Workspace   = game:GetService("Workspace")
-local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 
--- State
-local conns, flags, savedSlots, originalLighting = {}, {}, table.create(5), {}
+--// Vars
+local LocalPlayer = Players.LocalPlayer
+local Camera      = Workspace.CurrentCamera
+local conns       = {}
+local flags       = {}
+local savedSlots  = {}
 
--- Helpers
-local function safeDisconnect(c)
-    if c and c.Connected then pcall(c.Disconnect, c) end
+--// Helpers
+local function safeDisconnect(conn)
+    if conn then conn:Disconnect() end
 end
 
 local function clearAll()
@@ -27,43 +30,58 @@ local function clearAll()
     end
 end
 
-local function getChar()
-    return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local function getChar(plr)
+    plr = plr or LocalPlayer
+    return plr.Character or plr.CharacterAdded:Wait()
 end
 
-local function getHum(c)
-    c = c or getChar()
+local function getHum(plr)
+    local c = getChar(plr)
     return c:FindFirstChildOfClass("Humanoid")
 end
 
-local function getHRP(c)
-    c = c or getChar()
+local function getHRP(plr)
+    local c = getChar(plr)
     return c:FindFirstChild("HumanoidRootPart")
 end
 
 local function teleportTo(cf)
-    local hrp = getHRP()
-    if hrp then hrp.CFrame = cf end
-end
-
-local function restoreLighting()
-    for k, v in pairs(originalLighting) do
-        Lighting[k] = v
+    local hrp = getHRP(LocalPlayer)
+    if hrp then
+        hrp.CFrame = cf
     end
 end
 
 local function sortedPlayers()
     local list = {}
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then
-            table.insert(list, p.Name)
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            table.insert(list, plr.Name)
         end
     end
     table.sort(list)
     return list
 end
 
--- UI Init
+--// Save original lighting
+local originalLighting = {}
+local function saveLighting()
+    originalLighting = {
+        Brightness    = Lighting.Brightness,
+        ClockTime     = Lighting.ClockTime,
+        FogEnd        = Lighting.FogEnd,
+        GlobalShadows = Lighting.GlobalShadows,
+        Ambient       = Lighting.Ambient
+    }
+end
+
+local function restoreLighting()
+    for k, v in pairs(originalLighting) do
+        pcall(function() Lighting[k] = v end)
+    end
+end
+
+--// UI Init
 local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 WindUI:ToggleAcrylic(false)
 
@@ -77,24 +95,23 @@ local Window = WindUI:CreateWindow({
     Draggable = false
 })
 
--- Main Tab
+--// Main Tab
 local MainTab = Window:Tab({ Title = "Main", Icon = "zap" })
-
 MainTab:Section({ Title = "Player" })
 
 MainTab:Toggle({
-    Title = "GodMode",
+    Title = "No Clip",
     Default = false,
     Callback = function(v)
-        flags.God = v
-        safeDisconnect(conns.God)
-        local hum = getHum()
-        if not hum then return end
+        flags.noclip = v
+        safeDisconnect(conns.noclip)
         if v then
-            conns.God = hum.HealthChanged:Connect(function()
-                if hum.Health <= 0 then
-                    task.wait()
-                    hum.Health = hum.MaxHealth
+            conns.noclip = RunService.Stepped:Connect(function()
+                local char = getChar()
+                for _, part in ipairs(char:GetChildren()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
                 end
             end)
         end
@@ -102,23 +119,31 @@ MainTab:Toggle({
 })
 
 MainTab:Toggle({
-    Title = "No Clip",
+    Title = "Disable Player Collision",
     Default = false,
     Callback = function(v)
-        flags.noclip = v
-        safeDisconnect(conns.Noclip)
+        flags.noCollision = v
+        safeDisconnect(conns.noCollision)
         if v then
-            conns.Noclip = RunService.Stepped:Connect(function()
-                for _, part in ipairs(getChar():GetChildren()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false
+            conns.noCollision = RunService.Heartbeat:Connect(function()
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if plr ~= LocalPlayer and plr.Character then
+                        for _, part in ipairs(plr.Character:GetDescendants()) do
+                            if part:IsA("BasePart") then
+                                part.CanCollide = false
+                            end
+                        end
                     end
                 end
             end)
         else
-            for _, part in ipairs(getChar():GetChildren()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = true
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character then
+                    for _, part in ipairs(plr.Character:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = true
+                        end
+                    end
                 end
             end
         end
@@ -148,16 +173,10 @@ MainTab:Toggle({
     Title = "Fullbright",
     Default = false,
     Callback = function(v)
-        safeDisconnect(conns.Fullbright)
+        safeDisconnect(conns.fullbright)
         if v then
-            originalLighting = {
-                Brightness    = Lighting.Brightness,
-                ClockTime     = Lighting.ClockTime,
-                FogEnd        = Lighting.FogEnd,
-                GlobalShadows = Lighting.GlobalShadows,
-                Ambient       = Lighting.Ambient
-            }
-            conns.Fullbright = RunService.RenderStepped:Connect(function()
+            saveLighting()
+            conns.fullbright = RunService.RenderStepped:Connect(function()
                 Lighting.Brightness    = 2
                 Lighting.ClockTime     = 14
                 Lighting.FogEnd        = 1e9
@@ -176,11 +195,11 @@ MainTab:Toggle({
     Title = "Click Teleport",
     Default = false,
     Callback = function(v)
-        flags.clickTeleport = v
-        safeDisconnect(conns.clickTeleport)
+        flags.clickTp = v
+        safeDisconnect(conns.clickTp)
         if v then
             local mouse = LocalPlayer:GetMouse()
-            conns.clickTeleport = mouse.Button1Down:Connect(function()
+            conns.clickTp = mouse.Button1Down:Connect(function()
                 if mouse.Hit then
                     teleportTo(CFrame.new(mouse.Hit.Position + Vector3.new(0, 5, 0)))
                 end
@@ -189,63 +208,66 @@ MainTab:Toggle({
     end
 })
 
--- Teleport Tab
-local TeleportTab = Window:Tab({ Title = "Teleport", Icon = "map" })
-TeleportTab:Section({ Title = "Player Teleport" })
+--// Teleport Tab
+local TeleTab = Window:Tab({ Title = "Teleport", Icon = "map" })
+TeleTab:Section({ Title = "Player Teleport" })
 
-local selectedPlayerName
-local TeleportDropdown = TeleportTab:Dropdown({
+local selectedPlayer
+local TeleDropdown = TeleTab:Dropdown({
     Title = "Pilih Pemain",
     Values = sortedPlayers(),
     Searchable = true,
     Callback = function(opt)
-        selectedPlayerName = opt
+        selectedPlayer = opt
     end
 })
 
-TeleportTab:Button({
+TeleTab:Button({
     Title = "Teleport ke Pemain",
     Callback = function()
-        local target = selectedPlayerName and Players:FindFirstChild(selectedPlayerName)
-        local targetHRP = target and getHRP(target.Character)
-        if targetHRP then
-            teleportTo(targetHRP.CFrame + Vector3.new(0, 3, 0))
+        if selectedPlayer then
+            local target = Players:FindFirstChild(selectedPlayer)
+            local targetHRP = target and getHRP(target)
+            if targetHRP then
+                teleportTo(targetHRP.CFrame + Vector3.new(0, 3, 0))
+            end
         end
     end
 })
 
-TeleportTab:Button({
+TeleTab:Button({
     Title = "Refresh List",
     Callback = function()
         local list = sortedPlayers()
-        TeleportDropdown:Refresh(list)
-        if selectedPlayerName and table.find(list, selectedPlayerName) then
-            TeleportDropdown:Select(selectedPlayerName)
+        TeleDropdown:Refresh(list)
+        if selectedPlayer and table.find(list, selectedPlayer) then
+            TeleDropdown:Select(selectedPlayer)
+        else
+            selectedPlayer = nil
         end
     end
 })
 
--- Misc Tab
+--// Misc Tab
 local MiscTab = Window:Tab({ Title = "Misc", Icon = "eye" })
-
 MiscTab:Section({ Title = "Spectate" })
 
-local spectateTargetName
-local SpectateDropdown = MiscTab:Dropdown({
+local spectTarget
+local SpectDropdown = MiscTab:Dropdown({
     Title = "Spectate Player",
     Values = sortedPlayers(),
     Searchable = true,
     Callback = function(opt)
-        spectateTargetName = opt
+        spectTarget = opt
     end
 })
 
 MiscTab:Button({
     Title = "Mulai Spectate",
     Callback = function()
-        local target = spectateTargetName and Players:FindFirstChild(spectateTargetName)
+        local target = spectTarget and Players:FindFirstChild(spectTarget)
         if target and target.Character then
-            Workspace.CurrentCamera.CameraSubject = target.Character
+            Camera.CameraSubject = target.Character
         end
     end
 })
@@ -253,7 +275,7 @@ MiscTab:Button({
 MiscTab:Button({
     Title = "Berhenti Spectate",
     Callback = function()
-        Workspace.CurrentCamera.CameraSubject = getHum() or getChar()
+        Camera.CameraSubject = getHum() or getChar()
     end
 })
 
@@ -261,9 +283,11 @@ MiscTab:Button({
     Title = "Refresh List",
     Callback = function()
         local list = sortedPlayers()
-        SpectateDropdown:Refresh(list)
-        if spectateTargetName and table.find(list, spectateTargetName) then
-            SpectateDropdown:Select(spectateTargetName)
+        SpectDropdown:Refresh(list)
+        if spectTarget and table.find(list, spectTarget) then
+            SpectDropdown:Select(spectTarget)
+        else
+            spectTarget = nil
         end
     end
 })
@@ -314,7 +338,8 @@ MiscTab:Button({
     end
 })
 
-MiscTab:Section({ Title = "Free Cam" })
+--// Camera Section
+MiscTab:Section({ Title = "Camera" })
 
 local FreeCam = loadstring(game:HttpGet("https://raw.githubusercontent.com/Verdial/Verdict/refs/heads/main/fc_core.lua"))()
 MiscTab:Toggle({
@@ -329,11 +354,181 @@ MiscTab:Toggle({
     end
 })
 
--- Unload
-function Window:Unload()
+flags.sensitivity = 1.0
+local sensitivitySlider
+MiscTab:Toggle({
+    Title = "Smooth Camera",
+    Default = false,
+    Callback = function(v)
+        flags.smoothCam = v
+        safeDisconnect(conns.smoothCam)
+        safeDisconnect(conns.inputHandler)
+        if not v then return end
+
+        local lastCF = Camera.CFrame
+        conns.smoothCam = RunService.RenderStepped:Connect(function()
+            local goal = Camera.CFrame
+            lastCF = lastCF:Lerp(goal, 0.25)
+            Camera.CFrame = lastCF
+        end)
+
+        if UIS.MouseEnabled then
+            conns.inputHandler = UIS.InputChanged:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseMovement then
+                    local delta = input.Delta
+                    local x = -delta.X * 0.002 * flags.sensitivity
+                    local y = -delta.Y * 0.002 * flags.sensitivity
+                    Camera.CFrame = Camera.CFrame * CFrame.Angles(0, x, 0) * CFrame.Angles(y, 0, 0)
+                end
+            end)
+        elseif UIS.TouchEnabled then
+            conns.inputHandler = UIS.TouchMoved:Connect(function(touch)
+                local pos = touch.Position
+                local viewport = Camera.ViewportSize
+                if pos.X < viewport.X * 0.5 then return end
+                local delta = touch.Delta
+                local x = -delta.X * 0.002 * flags.sensitivity
+                local y = -delta.Y * 0.002 * flags.sensitivity
+                Camera.CFrame = Camera.CFrame * CFrame.Angles(0, x, 0) * CFrame.Angles(y, 0, 0)
+            end)
+        end
+    end
+})
+
+sensitivitySlider = MiscTab:Slider({
+    Title = "Sensitivity [ " .. tostring(flags.sensitivity) .. " ]",
+    Desc = "Atur seberapa responsif kamera saat digeser",
+    Value = { Min = 0.1, Max = 10.0, Default = flags.sensitivity, Step = 0.1 },
+    Callback = function(val)
+        flags.sensitivity = val
+        sensitivitySlider:SetTitle("Sensitivity [ " .. string.format("%.1f", val) .. " ]")
+    end
+})
+
+--// Utility Section
+MiscTab:Section({ Title = "Utility" })
+
+-- Enhanced Boost FPS+ (client-safe, no server-only API)
+MiscTab:Toggle({
+    Title = "Boost FPS+",
+    Default = false,
+    Callback = function(v)
+        flags.fpsBoost = v
+        safeDisconnect(conns.fpsBoostSweep)
+        safeDisconnect(conns.fpsBoostWatcher)
+        safeDisconnect(conns.fpsBoostEffects)
+
+        if v then
+            saveLighting()
+
+            -- Lighting baseline (client-safe)
+            pcall(function()
+                Lighting.GlobalShadows = false
+                Lighting.FogEnd = 1e9
+                Lighting.Brightness = 2
+            end)
+
+            -- Disable heavy post-process effects (correct class names)
+            local effectClasses = {
+                "Atmosphere",
+                "BloomEffect",
+                "BlurEffect",
+                "DepthOfFieldEffect",
+                "SunRaysEffect",
+                "ColorCorrectionEffect"
+            }
+
+            -- store previous states so we can restore cleanly
+            local storedEffects = {}
+            flags._storedEffects = storedEffects
+
+            local function disableEffect(inst)
+                for _, cls in ipairs(effectClasses) do
+                    if inst:IsA(cls) then
+                        pcall(function()
+                            storedEffects[inst] = (inst.Enabled ~= nil) and inst.Enabled or storedEffects[inst]
+                            if inst.Enabled ~= nil then inst.Enabled = false end
+                        end)
+                        break
+                    end
+                end
+            end
+
+            for _, cls in ipairs(effectClasses) do
+                local eff = Lighting:FindFirstChildOfClass(cls)
+                if eff then disableEffect(eff) end
+            end
+
+            conns.fpsBoostEffects = Lighting.ChildAdded:Connect(disableEffect)
+
+            -- Disable in-world heavy visuals (emitters/lights/highlight)
+            local function disableIfHeavy(obj)
+                if obj:IsA("ParticleEmitter")
+                or obj:IsA("Trail")
+                or obj:IsA("Smoke")
+                or obj:IsA("Fire")
+                or obj:IsA("Beam")
+                or obj:IsA("Highlight") then
+                    pcall(function()
+                        if obj.Enabled ~= nil then obj.Enabled = false end
+                    end)
+                elseif obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
+                    pcall(function() obj.Enabled = false end)
+                elseif obj:IsA("Explosion") then
+                    pcall(function() obj.Visible = false end)
+                end
+            end
+
+            -- initial sweep (one-time)
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                disableIfHeavy(obj)
+            end
+
+            -- watch new descendants (cheap)
+            conns.fpsBoostWatcher = workspace.DescendantAdded:Connect(disableIfHeavy)
+
+            -- periodic lightweight sweep (every 0.5s), not every frame
+            local acc = 0
+            conns.fpsBoostSweep = RunService.Heartbeat:Connect(function(dt)
+                acc = acc + dt
+                if acc < 0.5 then return end
+                acc = 0
+                for _, obj in ipairs(workspace:GetDescendants()) do
+                    if (obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke")
+                        or obj:IsA("Fire") or obj:IsA("Beam") or obj:IsA("Highlight"))
+                    then
+                        if obj.Enabled ~= false then
+                            pcall(function() obj.Enabled = false end)
+                        end
+                    end
+                end
+            end)
+
+        else
+            -- Restore lighting & effect states
+            restoreLighting()
+            safeDisconnect(conns.fpsBoostWatcher)
+            safeDisconnect(conns.fpsBoostSweep)
+            safeDisconnect(conns.fpsBoostEffects)
+
+            if flags._storedEffects then
+                for inst, state in pairs(flags._storedEffects) do
+                    if inst and inst.Parent and state ~= nil then
+                        pcall(function() inst.Enabled = state end)
+                    end
+                end
+                table.clear(flags._storedEffects)
+                flags._storedEffects = nil
+            end
+        end
+    end
+})
+
+--// Unload
+Window:Unload(function()
     clearAll()
-    Workspace.CurrentCamera.CameraSubject = getHum() or getChar()
+    Camera.CameraSubject = getHum() or getChar()
     _G.VerdictWindUI = nil
-end
+end)
 
 _G.VerdictWindUI = Window
