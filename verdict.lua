@@ -408,7 +408,7 @@ sensitivitySlider = MiscTab:Slider({
 --// Utility Section
 MiscTab:Section({ Title = "Utility" })
 
--- Enhanced Boost FPS+ (client-safe, no server-only API)
+-- Enhanced Boost FPS+
 MiscTab:Toggle({
     Title = "Boost FPS+",
     Default = false,
@@ -420,25 +420,16 @@ MiscTab:Toggle({
 
         if v then
             saveLighting()
-
-            -- Lighting baseline (client-safe)
             pcall(function()
                 Lighting.GlobalShadows = false
                 Lighting.FogEnd = 1e9
                 Lighting.Brightness = 2
             end)
 
-            -- Disable heavy post-process effects (correct class names)
             local effectClasses = {
-                "Atmosphere",
-                "BloomEffect",
-                "BlurEffect",
-                "DepthOfFieldEffect",
-                "SunRaysEffect",
-                "ColorCorrectionEffect"
+                "Atmosphere","BloomEffect","BlurEffect","DepthOfFieldEffect",
+                "SunRaysEffect","ColorCorrectionEffect"
             }
-
-            -- store previous states so we can restore cleanly
             local storedEffects = {}
             flags._storedEffects = storedEffects
 
@@ -446,8 +437,8 @@ MiscTab:Toggle({
                 for _, cls in ipairs(effectClasses) do
                     if inst:IsA(cls) then
                         pcall(function()
-                            storedEffects[inst] = (inst.Enabled ~= nil) and inst.Enabled or storedEffects[inst]
-                            if inst.Enabled ~= nil then inst.Enabled = false end
+                            storedEffects[inst] = inst.Enabled
+                            inst.Enabled = false
                         end)
                         break
                     end
@@ -458,20 +449,12 @@ MiscTab:Toggle({
                 local eff = Lighting:FindFirstChildOfClass(cls)
                 if eff then disableEffect(eff) end
             end
-
             conns.fpsBoostEffects = Lighting.ChildAdded:Connect(disableEffect)
 
-            -- Disable in-world heavy visuals (emitters/lights/highlight)
             local function disableIfHeavy(obj)
-                if obj:IsA("ParticleEmitter")
-                or obj:IsA("Trail")
-                or obj:IsA("Smoke")
-                or obj:IsA("Fire")
-                or obj:IsA("Beam")
-                or obj:IsA("Highlight") then
-                    pcall(function()
-                        if obj.Enabled ~= nil then obj.Enabled = false end
-                    end)
+                if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke")
+                or obj:IsA("Fire") or obj:IsA("Beam") or obj:IsA("Highlight") then
+                    pcall(function() obj.Enabled = false end)
                 elseif obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
                     pcall(function() obj.Enabled = false end)
                 elseif obj:IsA("Explosion") then
@@ -479,47 +462,55 @@ MiscTab:Toggle({
                 end
             end
 
-            -- initial sweep (one-time)
             for _, obj in ipairs(workspace:GetDescendants()) do
                 disableIfHeavy(obj)
             end
-
-            -- watch new descendants (cheap)
             conns.fpsBoostWatcher = workspace.DescendantAdded:Connect(disableIfHeavy)
 
-            -- periodic lightweight sweep (every 0.5s), not every frame
             local acc = 0
             conns.fpsBoostSweep = RunService.Heartbeat:Connect(function(dt)
-                acc = acc + dt
-                if acc < 0.5 then return end
-                acc = 0
-                for _, obj in ipairs(workspace:GetDescendants()) do
-                    if (obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke")
-                        or obj:IsA("Fire") or obj:IsA("Beam") or obj:IsA("Highlight"))
-                    then
-                        if obj.Enabled ~= false then
+                acc += dt
+                if acc >= 0.5 then
+                    acc = 0
+                    for _, obj in ipairs(workspace:GetDescendants()) do
+                        if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke")
+                        or obj:IsA("Fire") or obj:IsA("Beam") or obj:IsA("Highlight") then
                             pcall(function() obj.Enabled = false end)
                         end
                     end
                 end
             end)
-
         else
-            -- Restore lighting & effect states
             restoreLighting()
             safeDisconnect(conns.fpsBoostWatcher)
             safeDisconnect(conns.fpsBoostSweep)
             safeDisconnect(conns.fpsBoostEffects)
-
             if flags._storedEffects then
                 for inst, state in pairs(flags._storedEffects) do
-                    if inst and inst.Parent and state ~= nil then
+                    if inst and inst.Parent then
                         pcall(function() inst.Enabled = state end)
                     end
                 end
                 table.clear(flags._storedEffects)
                 flags._storedEffects = nil
             end
+        end
+    end
+})
+
+-- FPS Cap Slider
+flags.fpsCap = 60
+local fpsCapSlider = MiscTab:Slider({
+    Title = "FPS Cap [ " .. tostring(flags.fpsCap) .. " ]",
+    Desc = "Atur batas FPS (30 - 120)",
+    Value = { Min = 30, Max = 120, Default = flags.fpsCap, Step = 5 },
+    Callback = function(val)
+        flags.fpsCap = val
+        fpsCapSlider:SetTitle("FPS Cap [ " .. tostring(val) .. " ]")
+        if typeof(setfpscap) == "function" then
+            setfpscap(val)
+        else
+            warn("⚠️ Exploit tidak support setfpscap(), FPS Cap tidak aktif.")
         end
     end
 })
