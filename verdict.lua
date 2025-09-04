@@ -30,6 +30,12 @@ local function clearAll()
     end
 end
 
+local function safeSetTitle(elem, text)
+    pcall(function()
+        if elem and elem.SetTitle then elem:SetTitle(text) end
+    end)
+end
+
 local function getChar(plr)
     plr = plr or LocalPlayer
     return plr.Character or plr.CharacterAdded:Wait()
@@ -47,17 +53,13 @@ end
 
 local function teleportTo(cf)
     local hrp = getHRP(LocalPlayer)
-    if hrp then
-        hrp.CFrame = cf
-    end
+    if hrp then hrp.CFrame = cf end
 end
 
 local function sortedPlayers()
     local list = {}
     for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer then
-            table.insert(list, plr.Name)
-        end
+        if plr ~= LocalPlayer then table.insert(list, plr.Name) end
     end
     table.sort(list)
     return list
@@ -79,6 +81,31 @@ local function restoreLighting()
     for k, v in pairs(originalLighting) do
         pcall(function() Lighting[k] = v end)
     end
+end
+
+--// FPS Cap API Helpers (Power Saving Mode)
+local function capSupported()
+    return typeof(setfpscap) == "function"
+        or typeof(set_fps_cap) == "function"
+        or (syn and typeof(syn.set_fps_cap) == "function")
+end
+
+local function doSetCap(n)
+    if typeof(setfpscap) == "function" then
+        setfpscap(n)
+    elseif typeof(set_fps_cap) == "function" then
+        set_fps_cap(n)
+    elseif syn and typeof(syn.set_fps_cap) == "function" then
+        syn.set_fps_cap(n)
+    end
+end
+
+local originalCap = 60
+if capSupported() then
+    originalCap = (typeof(getfpscap) == "function" and getfpscap())
+        or (typeof(get_fps_cap) == "function" and get_fps_cap())
+        or (syn and typeof(syn.get_fps_cap) == "function" and syn.get_fps_cap())
+        or 60
 end
 
 --// UI Init
@@ -109,9 +136,7 @@ MainTab:Toggle({
             conns.noclip = RunService.Stepped:Connect(function()
                 local char = getChar()
                 for _, part in ipairs(char:GetChildren()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false
-                    end
+                    if part:IsA("BasePart") then part.CanCollide = false end
                 end
             end)
         end
@@ -129,9 +154,7 @@ MainTab:Toggle({
                 for _, plr in ipairs(Players:GetPlayers()) do
                     if plr ~= LocalPlayer and plr.Character then
                         for _, part in ipairs(plr.Character:GetDescendants()) do
-                            if part:IsA("BasePart") then
-                                part.CanCollide = false
-                            end
+                            if part:IsA("BasePart") then part.CanCollide = false end
                         end
                     end
                 end
@@ -140,9 +163,7 @@ MainTab:Toggle({
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= LocalPlayer and plr.Character then
                     for _, part in ipairs(plr.Character:GetDescendants()) do
-                        if part:IsA("BasePart") then
-                            part.CanCollide = true
-                        end
+                        if part:IsA("BasePart") then part.CanCollide = true end
                     end
                 end
             end
@@ -159,9 +180,7 @@ MainTab:Toggle({
         if v then
             conns.infiniteJump = UIS.JumpRequest:Connect(function()
                 local hum = getHum()
-                if hum then
-                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                end
+                if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
             end)
         end
     end
@@ -200,9 +219,7 @@ MainTab:Toggle({
         if v then
             local mouse = LocalPlayer:GetMouse()
             conns.clickTp = mouse.Button1Down:Connect(function()
-                if mouse.Hit then
-                    teleportTo(CFrame.new(mouse.Hit.Position + Vector3.new(0, 5, 0)))
-                end
+                if mouse.Hit then teleportTo(CFrame.new(mouse.Hit.Position + Vector3.new(0, 5, 0))) end
             end)
         end
     end
@@ -217,9 +234,7 @@ local TeleDropdown = TeleTab:Dropdown({
     Title = "Pilih Pemain",
     Values = sortedPlayers(),
     Searchable = true,
-    Callback = function(opt)
-        selectedPlayer = opt
-    end
+    Callback = function(opt) selectedPlayer = opt end
 })
 
 TeleTab:Button({
@@ -227,10 +242,8 @@ TeleTab:Button({
     Callback = function()
         if selectedPlayer then
             local target = Players:FindFirstChild(selectedPlayer)
-            local targetHRP = target and getHRP(target)
-            if targetHRP then
-                teleportTo(targetHRP.CFrame + Vector3.new(0, 3, 0))
-            end
+            local hrp = target and getHRP(target)
+            if hrp then teleportTo(hrp.CFrame + Vector3.new(0, 3, 0)) end
         end
     end
 })
@@ -250,16 +263,15 @@ TeleTab:Button({
 
 --// Misc Tab
 local MiscTab = Window:Tab({ Title = "Misc", Icon = "eye" })
-MiscTab:Section({ Title = "Spectate" })
 
+--// Spectate
+MiscTab:Section({ Title = "Spectate" })
 local spectTarget
 local SpectDropdown = MiscTab:Dropdown({
     Title = "Spectate Player",
     Values = sortedPlayers(),
     Searchable = true,
-    Callback = function(opt)
-        spectTarget = opt
-    end
+    Callback = function(opt) spectTarget = opt end
 })
 
 MiscTab:Button({
@@ -292,25 +304,21 @@ MiscTab:Button({
     end
 })
 
+--// Position
 MiscTab:Section({ Title = "Position" })
-
 local slotSelected = 1
 MiscTab:Dropdown({
     Title = "Pilih Slot",
-    Values = { "1", "2", "3", "4", "5" },
+    Values = { "1","2","3","4","5" },
     Value = "1",
-    Callback = function(opt)
-        slotSelected = tonumber(opt)
-    end
+    Callback = function(opt) slotSelected = tonumber(opt) end
 })
 
 MiscTab:Button({
     Title = "Save Pos",
     Callback = function()
         local hrp = getHRP()
-        if hrp then
-            savedSlots[slotSelected] = hrp.Position
-        end
+        if hrp then savedSlots[slotSelected] = hrp.Position end
     end
 })
 
@@ -318,27 +326,21 @@ MiscTab:Button({
     Title = "Teleport Pos",
     Callback = function()
         local pos = savedSlots[slotSelected]
-        if pos then
-            teleportTo(CFrame.new(pos + Vector3.new(0, 5, 0)))
-        end
+        if pos then teleportTo(CFrame.new(pos + Vector3.new(0, 5, 0))) end
     end
 })
 
 MiscTab:Button({
     Title = "Clear Slot",
-    Callback = function()
-        savedSlots[slotSelected] = nil
-    end
+    Callback = function() savedSlots[slotSelected] = nil end
 })
 
 MiscTab:Button({
     Title = "Clear All Slots",
-    Callback = function()
-        table.clear(savedSlots)
-    end
+    Callback = function() table.clear(savedSlots) end
 })
 
---// Camera Section
+--// Camera
 MiscTab:Section({ Title = "Camera" })
 
 local FreeCam = loadstring(game:HttpGet("https://raw.githubusercontent.com/Verdial/Verdict/refs/heads/main/fc_core.lua"))()
@@ -346,11 +348,7 @@ MiscTab:Toggle({
     Title = "Free Cam",
     Default = false,
     Callback = function(v)
-        if v then
-            FreeCam:Enable()
-        else
-            FreeCam:Disable()
-        end
+        if v then FreeCam:Enable() else FreeCam:Disable() end
     end
 })
 
@@ -375,20 +373,19 @@ MiscTab:Toggle({
         if UIS.MouseEnabled then
             conns.inputHandler = UIS.InputChanged:Connect(function(input)
                 if input.UserInputType == Enum.UserInputType.MouseMovement then
-                    local delta = input.Delta
-                    local x = -delta.X * 0.002 * flags.sensitivity
-                    local y = -delta.Y * 0.002 * flags.sensitivity
+                    local d = input.Delta
+                    local x = -d.X * 0.002 * flags.sensitivity
+                    local y = -d.Y * 0.002 * flags.sensitivity
                     Camera.CFrame = Camera.CFrame * CFrame.Angles(0, x, 0) * CFrame.Angles(y, 0, 0)
                 end
             end)
         elseif UIS.TouchEnabled then
             conns.inputHandler = UIS.TouchMoved:Connect(function(touch)
                 local pos = touch.Position
-                local viewport = Camera.ViewportSize
-                if pos.X < viewport.X * 0.5 then return end
-                local delta = touch.Delta
-                local x = -delta.X * 0.002 * flags.sensitivity
-                local y = -delta.Y * 0.002 * flags.sensitivity
+                if pos.X < Camera.ViewportSize.X * 0.5 then return end
+                local d = touch.Delta
+                local x = -d.X * 0.002 * flags.sensitivity
+                local y = -d.Y * 0.002 * flags.sensitivity
                 Camera.CFrame = Camera.CFrame * CFrame.Angles(0, x, 0) * CFrame.Angles(y, 0, 0)
             end)
         end
@@ -397,61 +394,48 @@ MiscTab:Toggle({
 
 sensitivitySlider = MiscTab:Slider({
     Title = "Sensitivity [ " .. tostring(flags.sensitivity) .. " ]",
-    Desc = "Atur seberapa responsif kamera saat digeser",
+    Desc  = "Atur seberapa responsif kamera saat digeser",
     Value = { Min = 0.1, Max = 10.0, Default = flags.sensitivity, Step = 0.1 },
     Callback = function(val)
         flags.sensitivity = val
-        sensitivitySlider:SetTitle("Sensitivity [ " .. string.format("%.1f", val) .. " ]")
+        safeSetTitle(sensitivitySlider, "Sensitivity [ " .. string.format("%.1f", val) .. " ]")
     end
 })
 
---// Utility Section
+--// Utility
 MiscTab:Section({ Title = "Utility" })
 
--- Enhanced Boost FPS+
+-- Power Saving Mode (FPS 30)
 MiscTab:Toggle({
-    Title = "Boost FPS+",
+    Title = "Power Saving Mode",
     Default = false,
     Callback = function(v)
-        flags.fpsBoost = v
-        safeDisconnect(conns.fpsBoostSweep)
-        safeDisconnect(conns.fpsBoostWatcher)
-        safeDisconnect(conns.fpsBoostEffects)
+        if not capSupported() then
+            warn("⚠️ Exploit tidak support FPS cap API.")
+            return
+        end
+        if v then doSetCap(30) else doSetCap(originalCap) end
+    end
+})
+
+-- Anti Lag
+MiscTab:Toggle({
+    Title = "BoostFPS",
+    Default = false,
+    Callback = function(v)
+        flags.antilag = v
+        safeDisconnect(conns.antilagSweep)
+        safeDisconnect(conns.antilagWatcher)
 
         if v then
             saveLighting()
             pcall(function()
                 Lighting.GlobalShadows = false
-                Lighting.FogEnd = 1e9
-                Lighting.Brightness = 2
+                Lighting.FogEnd        = 1e9
+                Lighting.Brightness    = 2
             end)
 
-            local effectClasses = {
-                "Atmosphere","BloomEffect","BlurEffect","DepthOfFieldEffect",
-                "SunRaysEffect","ColorCorrectionEffect"
-            }
-            local storedEffects = {}
-            flags._storedEffects = storedEffects
-
-            local function disableEffect(inst)
-                for _, cls in ipairs(effectClasses) do
-                    if inst:IsA(cls) then
-                        pcall(function()
-                            storedEffects[inst] = inst.Enabled
-                            inst.Enabled = false
-                        end)
-                        break
-                    end
-                end
-            end
-
-            for _, cls in ipairs(effectClasses) do
-                local eff = Lighting:FindFirstChildOfClass(cls)
-                if eff then disableEffect(eff) end
-            end
-            conns.fpsBoostEffects = Lighting.ChildAdded:Connect(disableEffect)
-
-            local function disableIfHeavy(obj)
+            local function disableHeavy(obj)
                 if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke")
                 or obj:IsA("Fire") or obj:IsA("Beam") or obj:IsA("Highlight") then
                     pcall(function() obj.Enabled = false end)
@@ -459,58 +443,37 @@ MiscTab:Toggle({
                     pcall(function() obj.Enabled = false end)
                 elseif obj:IsA("Explosion") then
                     pcall(function() obj.Visible = false end)
+                elseif obj:IsA("Decal") or obj:IsA("Texture") then
+                    pcall(function() obj:Destroy() end)
+                elseif obj:IsA("BasePart") or obj:IsA("UnionOperation") or obj:IsA("MeshPart") then
+                    pcall(function()
+                        obj.Material    = Enum.Material.Plastic
+                        obj.Reflectance = 0
+                    end)
                 end
             end
 
+            -- sekali bersih + pantau penambahan baru
             for _, obj in ipairs(workspace:GetDescendants()) do
-                disableIfHeavy(obj)
+                disableHeavy(obj)
             end
-            conns.fpsBoostWatcher = workspace.DescendantAdded:Connect(disableIfHeavy)
+            conns.antilagWatcher = workspace.DescendantAdded:Connect(disableHeavy)
 
+            -- sweep ringan tiap 1 detik untuk yang lolos
             local acc = 0
-            conns.fpsBoostSweep = RunService.Heartbeat:Connect(function(dt)
+            conns.antilagSweep = RunService.Heartbeat:Connect(function(dt)
                 acc += dt
-                if acc >= 0.5 then
+                if acc >= 1 then
                     acc = 0
                     for _, obj in ipairs(workspace:GetDescendants()) do
-                        if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke")
-                        or obj:IsA("Fire") or obj:IsA("Beam") or obj:IsA("Highlight") then
-                            pcall(function() obj.Enabled = false end)
-                        end
+                        disableHeavy(obj)
                     end
                 end
             end)
         else
             restoreLighting()
-            safeDisconnect(conns.fpsBoostWatcher)
-            safeDisconnect(conns.fpsBoostSweep)
-            safeDisconnect(conns.fpsBoostEffects)
-            if flags._storedEffects then
-                for inst, state in pairs(flags._storedEffects) do
-                    if inst and inst.Parent then
-                        pcall(function() inst.Enabled = state end)
-                    end
-                end
-                table.clear(flags._storedEffects)
-                flags._storedEffects = nil
-            end
-        end
-    end
-})
-
--- FPS Cap Slider
-flags.fpsCap = 60
-local fpsCapSlider = MiscTab:Slider({
-    Title = "FPS Cap [ " .. tostring(flags.fpsCap) .. " ]",
-    Desc = "Atur batas FPS (30 - 120)",
-    Value = { Min = 30, Max = 120, Default = flags.fpsCap, Step = 5 },
-    Callback = function(val)
-        flags.fpsCap = val
-        fpsCapSlider:SetTitle("FPS Cap [ " .. tostring(val) .. " ]")
-        if typeof(setfpscap) == "function" then
-            setfpscap(val)
-        else
-            warn("⚠️ Exploit tidak support setfpscap(), FPS Cap tidak aktif.")
+            safeDisconnect(conns.antilagWatcher)
+            safeDisconnect(conns.antilagSweep)
         end
     end
 })
@@ -519,6 +482,9 @@ local fpsCapSlider = MiscTab:Slider({
 Window:Unload(function()
     clearAll()
     Camera.CameraSubject = getHum() or getChar()
+    if capSupported() then
+        doSetCap(originalCap) -- reset FPS cap saat UI ditutup
+    end
     _G.VerdictWindUI = nil
 end)
 
