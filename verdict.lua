@@ -19,9 +19,7 @@ local flags       = {}
 local savedSlots  = {}
 
 --// Helpers
-local function safeDisconnect(conn)
-    if conn then conn:Disconnect() end
-end
+local function safeDisconnect(conn) if conn then conn:Disconnect() end end
 
 local function clearAll()
     for k, v in pairs(conns) do
@@ -81,6 +79,12 @@ local function restoreLighting()
     for k, v in pairs(originalLighting) do
         pcall(function() Lighting[k] = v end)
     end
+    -- re-enable post effects yang sempat dimatikan
+    for _, eff in ipairs(Lighting:GetChildren()) do
+        if eff:IsA("PostEffect") then
+            eff.Enabled = true
+        end
+    end
 end
 
 --// FPS Cap API Helpers (Power Saving Mode)
@@ -108,18 +112,83 @@ if capSupported() then
         or 60
 end
 
+--// BoostFPS (Dropdown + Apply/Restore)
+local function optimizeLite(obj)
+    if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke")
+    or obj:IsA("Fire") or obj:IsA("Beam") or obj:IsA("Highlight") then
+        pcall(function() obj.Enabled = false end)
+    elseif obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
+        pcall(function() obj.Enabled = false end)
+    end
+end
+
+local function optimizeBalanced(obj)
+    optimizeLite(obj)
+    if obj:IsA("Decal") or obj:IsA("Texture") then
+        -- jangan destroy biar nggak bikin GC spike
+        pcall(function() obj.Transparency = 1 end)
+    elseif obj:IsA("BasePart") or obj:IsA("UnionOperation") or obj:IsA("MeshPart") then
+        pcall(function()
+            obj.Material    = Enum.Material.Plastic
+            obj.Reflectance = 0
+        end)
+    end
+end
+
+local function applyBoost(mode)
+    saveLighting()
+
+    -- matikan post effects (Bloom, ColorCorrection, DepthOfField, dll)
+    for _, eff in ipairs(Lighting:GetChildren()) do
+        if eff:IsA("PostEffect") then
+            eff.Enabled = false
+        end
+    end
+
+    -- terapkan optimisasi sekali di awal
+    if mode == "Lite" then
+        for _, o in ipairs(workspace:GetDescendants()) do optimizeLite(o) end
+        safeDisconnect(conns.boostWatcher)
+        conns.boostWatcher = workspace.DescendantAdded:Connect(optimizeLite)
+
+    elseif mode == "Balanced" then
+        for _, o in ipairs(workspace:GetDescendants()) do optimizeBalanced(o) end
+        safeDisconnect(conns.boostWatcher)
+        conns.boostWatcher = workspace.DescendantAdded:Connect(optimizeBalanced)
+
+    elseif mode == "Ultra" then
+        for _, o in ipairs(workspace:GetDescendants()) do optimizeBalanced(o) end
+        safeDisconnect(conns.boostWatcher)
+        conns.boostWatcher = workspace.DescendantAdded:Connect(optimizeBalanced)
+        -- pengaturan ultra (lighting & streaming)
+        pcall(function()
+            Lighting.GlobalShadows   = false
+            Lighting.Brightness      = 1
+            Lighting.FogEnd          = 1e9
+            Lighting.Ambient         = Color3.new(1, 1, 1)
+            Workspace.StreamingEnabled   = true
+            Workspace.StreamingMinRadius = 64
+        end)
+    end
+end
+
+local function restoreBoost()
+    safeDisconnect(conns.boostWatcher)
+    restoreLighting()
+end
+
 --// UI Init
 local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 WindUI:ToggleAcrylic(false)
 
 local Window = WindUI:CreateWindow({
-    Title = "Verdict",
-    Author = "Just a simple script ♡",
-    Icon = "smartphone",
-    Size = UDim2.fromOffset(360, 400),
-    Theme = "Dark",
+    Title        = "Verdict",
+    Author       = "Just a simple script ♡",
+    Icon         = "smartphone",
+    Size         = UDim2.fromOffset(360, 400),
+    Theme        = "Dark",
     SideBarWidth = 120,
-    Draggable = false
+    Draggable    = false
 })
 
 --// Main Tab
@@ -266,6 +335,7 @@ local MiscTab = Window:Tab({ Title = "Misc", Icon = "eye" })
 
 --// Spectate
 MiscTab:Section({ Title = "Spectate" })
+
 local spectTarget
 local SpectDropdown = MiscTab:Dropdown({
     Title = "Spectate Player",
@@ -306,11 +376,12 @@ MiscTab:Button({
 
 --// Position
 MiscTab:Section({ Title = "Position" })
+
 local slotSelected = 1
 MiscTab:Dropdown({
     Title = "Pilih Slot",
     Values = { "1","2","3","4","5" },
-    Value = "1",
+    Value  = "1",
     Callback = function(opt) slotSelected = tonumber(opt) end
 })
 
@@ -354,6 +425,7 @@ MiscTab:Toggle({
 
 flags.sensitivity = 1.0
 local sensitivitySlider
+
 MiscTab:Toggle({
     Title = "Smooth Camera",
     Default = false,
@@ -418,63 +490,29 @@ MiscTab:Toggle({
     end
 })
 
--- Anti Lag
-MiscTab:Toggle({
-    Title = "BoostFPS",
-    Default = false,
-    Callback = function(v)
-        flags.antilag = v
-        safeDisconnect(conns.antilagSweep)
-        safeDisconnect(conns.antilagWatcher)
+-- BoostFPS (Dropdown + Apply / Restore)
+MiscTab:Section({ Title = "Performance" })
 
-        if v then
-            saveLighting()
-            pcall(function()
-                Lighting.GlobalShadows = false
-                Lighting.FogEnd        = 1e9
-                Lighting.Brightness    = 2
-            end)
+local boostMode = "Lite"
+local BoostDropdown = MiscTab:Dropdown({
+    Title = "BoostFPS Mode",
+    Values = { "Lite", "Balanced", "Ultra" },
+    Default = "Lite",
+    Callback = function(opt) boostMode = opt end
+})
 
-            local function disableHeavy(obj)
-                if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke")
-                or obj:IsA("Fire") or obj:IsA("Beam") or obj:IsA("Highlight") then
-                    pcall(function() obj.Enabled = false end)
-                elseif obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
-                    pcall(function() obj.Enabled = false end)
-                elseif obj:IsA("Explosion") then
-                    pcall(function() obj.Visible = false end)
-                elseif obj:IsA("Decal") or obj:IsA("Texture") then
-                    pcall(function() obj:Destroy() end)
-                elseif obj:IsA("BasePart") or obj:IsA("UnionOperation") or obj:IsA("MeshPart") then
-                    pcall(function()
-                        obj.Material    = Enum.Material.Plastic
-                        obj.Reflectance = 0
-                    end)
-                end
-            end
+MiscTab:Button({
+    Title = "Apply Boost",
+    Callback = function()
+        restoreBoost()
+        applyBoost(boostMode)
+    end
+})
 
-            -- sekali bersih + pantau penambahan baru
-            for _, obj in ipairs(workspace:GetDescendants()) do
-                disableHeavy(obj)
-            end
-            conns.antilagWatcher = workspace.DescendantAdded:Connect(disableHeavy)
-
-            -- sweep ringan tiap 1 detik untuk yang lolos
-            local acc = 0
-            conns.antilagSweep = RunService.Heartbeat:Connect(function(dt)
-                acc += dt
-                if acc >= 1 then
-                    acc = 0
-                    for _, obj in ipairs(workspace:GetDescendants()) do
-                        disableHeavy(obj)
-                    end
-                end
-            end)
-        else
-            restoreLighting()
-            safeDisconnect(conns.antilagWatcher)
-            safeDisconnect(conns.antilagSweep)
-        end
+MiscTab:Button({
+    Title = "Restore Boost",
+    Callback = function()
+        restoreBoost()
     end
 })
 
@@ -485,6 +523,7 @@ Window:Unload(function()
     if capSupported() then
         doSetCap(originalCap) -- reset FPS cap saat UI ditutup
     end
+    restoreBoost()
     _G.VerdictWindUI = nil
 end)
 
