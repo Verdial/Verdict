@@ -16,8 +16,8 @@ Desainnya minimalis namun fungsional, sehingga mudah dipahami dan dimodifikasi.
 ---
 
 ##  Features
-- 📌 **Lightweight** — Script kecil & mudah dipahami.
-- ⚡ **Fast Execution** — Perintah berjalan cepat tanpa delay besar.
+- **Lightweight** — Script kecil & mudah dipahami.
+- **Fast Execution** — Perintah berjalan cepat tanpa delay besar.
 
 ---
 
