@@ -8,6 +8,7 @@
 **Verdict** adalah script exploit Roblox sederhana yang dibuat untuk tujuan edukasi dan eksperimen.  
 Desainnya minimalis namun fungsional, sehingga mudah dipahami dan dimodifikasi.
 
+
 > ⚠ **Disclaimer:**  
 > Script ini hanya untuk pembelajaran dan riset.  
 > Penulis tidak bertanggung jawab atas penyalahgunaan.
