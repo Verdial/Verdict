@@ -486,7 +486,7 @@ MiscTab:Toggle({
             warn("⚠️ Exploit tidak support FPS cap API.")
             return
         end
-        if v then doSetCap(30) else doSetCap(originalCap) end
+        if v then doSetCap(24) else doSetCap(originalCap) end
     end
 })
 
