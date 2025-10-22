@@ -255,6 +255,63 @@ MainTab:Toggle({
     end
 })
 
+--// Auto Jump
+MainTab:Toggle({
+    Title = "Auto Jump",
+    Default = false,
+    Callback = function(v)
+        flags.autoJump = v
+        safeDisconnect(conns.autoJump)
+        if flags.autoJumpButton then
+            flags.autoJumpButton:Destroy()
+            flags.autoJumpButton = nil
+        end
+        if not v then return end
+
+        -- buat tombol di pojok kanan bawah
+        local gui = Instance.new("ScreenGui")
+        gui.Name = "AutoJumpGUI"
+        gui.ResetOnSpawn = false
+        gui.Parent = game:GetService("CoreGui")
+
+        local btn = Instance.new("TextButton")
+        btn.Text = "⭮"
+        btn.Font = Enum.Font.GothamBold
+        btn.TextScaled = true
+        btn.Size = UDim2.new(0, 55, 0, 55)
+        btn.AnchorPoint = Vector2.new(1, 1)
+        btn.Position = UDim2.new(1, -25, 1, -25)
+        btn.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
+        btn.TextColor3 = Color3.new(1, 1, 1)
+        btn.BorderSizePixel = 0
+        btn.ZIndex = 9999
+        btn.Parent = gui
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(1, 0)
+        corner.Parent = btn
+
+        flags.autoJumpEnabled = true
+        flags.autoJumpButton = gui
+
+        btn.MouseButton1Click:Connect(function()
+            flags.autoJumpEnabled = not flags.autoJumpEnabled
+            btn.BackgroundColor3 = flags.autoJumpEnabled
+                and Color3.fromRGB(100, 255, 100)
+                or  Color3.fromRGB(255, 100, 100)
+        end)
+
+        local hum = getHum()
+        conns.autoJump = RunService.Heartbeat:Connect(function()
+            if not flags.autoJumpEnabled then return end
+            hum = getHum()
+            if hum and hum.FloorMaterial ~= Enum.Material.Air then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+        end)
+    end
+})
+
 MainTab:Section({ Title = "Visual" })
 
 MainTab:Toggle({
