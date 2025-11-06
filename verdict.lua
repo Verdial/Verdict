@@ -302,6 +302,7 @@ MainTab:Toggle({
         end)
 
         local hum
+        local wasGrounded = false
 
         conns.autoJump = RunService.Heartbeat:Connect(function()
             if not flags.autoJumpEnabled then return end
@@ -309,8 +310,16 @@ MainTab:Toggle({
             hum = getHum()
             if not hum or hum.Health <= 0 then return end
 
-            -- simulasi menahan tombol jump
-            hum.Jump = true
+            local grounded = hum.FloorMaterial ~= Enum.Material.Air
+
+            -- deteksi transisi dari udara ke tanah -> langsung jump
+            if grounded and not wasGrounded then
+                hum.Jump = true
+            else
+                hum.Jump = false
+            end
+
+            wasGrounded = grounded
         end)
     end
 })
