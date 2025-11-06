@@ -262,10 +262,13 @@ MainTab:Toggle({
     Callback = function(v)
         flags.autoJump = v
         safeDisconnect(conns.autoJump)
+
+        -- bersihkan GUI sebelumnya
         if flags.autoJumpButton then
             flags.autoJumpButton:Destroy()
             flags.autoJumpButton = nil
         end
+
         if not v then return end
 
         -- buat tombol di pojok kanan bawah
@@ -281,7 +284,7 @@ MainTab:Toggle({
         btn.Size = UDim2.new(0, 55, 0, 55)
         btn.AnchorPoint = Vector2.new(1, 1)
         btn.Position = UDim2.new(1, -25, 1, -25)
-        btn.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
+        btn.BackgroundColor3 = Color3.fromRGB(255, 100, 100) -- awalnya mati
         btn.TextColor3 = Color3.new(1, 1, 1)
         btn.BorderSizePixel = 0
         btn.ZIndex = 9999
@@ -291,10 +294,10 @@ MainTab:Toggle({
         corner.CornerRadius = UDim.new(1, 0)
         corner.Parent = btn
 
-        flags.autoJumpEnabled = true
+        flags.autoJumpEnabled = false
         flags.autoJumpButton = gui
 
-        -- klik tombol untuk on/off auto jump
+        -- Toggle manual lewat tombol
         btn.MouseButton1Click:Connect(function()
             flags.autoJumpEnabled = not flags.autoJumpEnabled
             btn.BackgroundColor3 = flags.autoJumpEnabled
@@ -302,30 +305,20 @@ MainTab:Toggle({
                 or  Color3.fromRGB(255, 100, 100)
         end)
 
+        -- koneksi utama
         local hum
-        local wasGrounded = false
-
         conns.autoJump = RunService.Heartbeat:Connect(function()
-            if not flags.autoJump then return end  -- toggle utama dari MainTab
+            if not flags.autoJumpEnabled then return end
+
             hum = getHum()
             if not hum or hum.Health <= 0 then return end
 
-            -- hanya aktif jika tombol UI juga on
-            if not flags.autoJumpEnabled then
-                hum.Jump = false
-                wasGrounded = hum.FloorMaterial ~= Enum.Material.Air
-                return
-            end
-
-            local grounded = hum.FloorMaterial ~= Enum.Material.Air
-
-            if grounded and not wasGrounded then
+            -- Auto-jump seperti menahan tombol jump
+            if hum.FloorMaterial ~= Enum.Material.Air then
                 hum.Jump = true
             else
                 hum.Jump = false
             end
-
-            wasGrounded = grounded
         end)
     end
 })
