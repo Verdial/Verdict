@@ -301,18 +301,22 @@ MainTab:Toggle({
                 or  Color3.fromRGB(255, 100, 100)
         end)
 
-        local hum = getHum()
-        local lastJump = 0
-        local cooldown = 0.25
+        local hum
+        local isJumping = false
 
         conns.autoJump = RunService.Heartbeat:Connect(function()
             if not flags.autoJumpEnabled then return end
+
             hum = getHum()
             if not hum or hum.Health <= 0 then return end
-            if tick() - lastJump < cooldown then return end
-            if hum.FloorMaterial ~= Enum.Material.Air then
+
+            local state = hum:GetState()
+            if state == Enum.HumanoidStateType.Freefall then
+                isJumping = true
+            elseif (state == Enum.HumanoidStateType.Landed or hum.FloorMaterial ~= Enum.Material.Air) and isJumping then
+                -- langsung lompat begitu nyentuh tanah
                 hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                lastJump = tick()
+                isJumping = false
             end
         end)
     end
