@@ -302,7 +302,7 @@ MainTab:Toggle({
         end)
 
         local hum
-        local isJumping = false
+        local wasGrounded = false
 
         conns.autoJump = RunService.Heartbeat:Connect(function()
             if not flags.autoJumpEnabled then return end
@@ -310,14 +310,14 @@ MainTab:Toggle({
             hum = getHum()
             if not hum or hum.Health <= 0 then return end
 
-            local state = hum:GetState()
-            if state == Enum.HumanoidStateType.Freefall then
-                isJumping = true
-            elseif (state == Enum.HumanoidStateType.Landed or hum.FloorMaterial ~= Enum.Material.Air) and isJumping then
-                -- langsung lompat begitu nyentuh tanah
+            local grounded = hum.FloorMaterial ~= Enum.Material.Air
+
+            -- Deteksi perubahan dari udara -> tanah
+            if grounded and not wasGrounded then
                 hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                isJumping = false
             end
+
+            wasGrounded = grounded
         end)
     end
 })
