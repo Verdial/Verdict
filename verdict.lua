@@ -302,11 +302,17 @@ MainTab:Toggle({
         end)
 
         local hum = getHum()
+        local lastJump = 0
+        local cooldown = 0.25
+
         conns.autoJump = RunService.Heartbeat:Connect(function()
             if not flags.autoJumpEnabled then return end
             hum = getHum()
-            if hum and hum.FloorMaterial ~= Enum.Material.Air then
+            if not hum or hum.Health <= 0 then return end
+            if tick() - lastJump < cooldown then return end
+            if hum.FloorMaterial ~= Enum.Material.Air then
                 hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                lastJump = tick()
             end
         end)
     end
