@@ -294,6 +294,7 @@ MainTab:Toggle({
         flags.autoJumpEnabled = true
         flags.autoJumpButton = gui
 
+        -- klik tombol untuk on/off auto jump
         btn.MouseButton1Click:Connect(function()
             flags.autoJumpEnabled = not flags.autoJumpEnabled
             btn.BackgroundColor3 = flags.autoJumpEnabled
@@ -305,14 +306,19 @@ MainTab:Toggle({
         local wasGrounded = false
 
         conns.autoJump = RunService.Heartbeat:Connect(function()
-            if not flags.autoJumpEnabled then return end
-
+            if not flags.autoJump then return end  -- toggle utama dari MainTab
             hum = getHum()
             if not hum or hum.Health <= 0 then return end
 
+            -- hanya aktif jika tombol UI juga on
+            if not flags.autoJumpEnabled then
+                hum.Jump = false
+                wasGrounded = hum.FloorMaterial ~= Enum.Material.Air
+                return
+            end
+
             local grounded = hum.FloorMaterial ~= Enum.Material.Air
 
-            -- deteksi transisi dari udara ke tanah -> langsung jump
             if grounded and not wasGrounded then
                 hum.Jump = true
             else
