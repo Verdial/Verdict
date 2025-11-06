@@ -263,7 +263,7 @@ MainTab:Toggle({
         flags.autoJump = v
         safeDisconnect(conns.autoJump)
 
-        -- bersihkan GUI sebelumnya
+        -- hapus gui lama jika ada
         if flags.autoJumpButton then
             flags.autoJumpButton:Destroy()
             flags.autoJumpButton = nil
@@ -284,7 +284,7 @@ MainTab:Toggle({
         btn.Size = UDim2.new(0, 55, 0, 55)
         btn.AnchorPoint = Vector2.new(1, 1)
         btn.Position = UDim2.new(1, -25, 1, -25)
-        btn.BackgroundColor3 = Color3.fromRGB(255, 100, 100) -- awalnya mati
+        btn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
         btn.TextColor3 = Color3.new(1, 1, 1)
         btn.BorderSizePixel = 0
         btn.ZIndex = 9999
@@ -297,7 +297,7 @@ MainTab:Toggle({
         flags.autoJumpEnabled = false
         flags.autoJumpButton = gui
 
-        -- Toggle manual lewat tombol
+        -- fungsi toggle manual
         btn.MouseButton1Click:Connect(function()
             flags.autoJumpEnabled = not flags.autoJumpEnabled
             btn.BackgroundColor3 = flags.autoJumpEnabled
@@ -305,19 +305,16 @@ MainTab:Toggle({
                 or  Color3.fromRGB(255, 100, 100)
         end)
 
-        -- koneksi utama
-        local hum
+        -- koneksi utama untuk auto bhop
         conns.autoJump = RunService.Heartbeat:Connect(function()
             if not flags.autoJumpEnabled then return end
 
-            hum = getHum()
+            local hum = getHum()
             if not hum or hum.Health <= 0 then return end
 
-            -- Auto-jump seperti menahan tombol jump
+            -- jika pemain menyentuh tanah, langsung lompat
             if hum.FloorMaterial ~= Enum.Material.Air then
                 hum.Jump = true
-            else
-                hum.Jump = false
             end
         end)
     end
