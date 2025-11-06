@@ -255,15 +255,14 @@ MainTab:Toggle({
     end
 })
 
---// Auto Jump
 MainTab:Toggle({
-    Title = "Auto Jump",
+    Title = "Auto Jump / Bhop",
     Default = false,
     Callback = function(v)
         flags.autoJump = v
         safeDisconnect(conns.autoJump)
 
-        -- Hapus GUI lama kalau ada
+        -- Bersihkan GUI lama
         if flags.autoJumpButton then
             flags.autoJumpButton:Destroy()
             flags.autoJumpButton = nil
@@ -271,8 +270,12 @@ MainTab:Toggle({
 
         if not v then return end
 
-        -- Buat GUI tombol pojok kanan bawah
+        local RunService = game:GetService("RunService")
+        local Players = game:GetService("Players")
+        local LocalPlayer = Players.LocalPlayer
         local CoreGui = game:GetService("CoreGui")
+
+        -- Buat GUI
         local gui = Instance.new("ScreenGui")
         gui.Name = "AutoJumpGUI"
         gui.IgnoreGuiInset = true
@@ -299,11 +302,10 @@ MainTab:Toggle({
         corner.CornerRadius = UDim.new(1, 0)
         corner.Parent = btn
 
-        -- Simpan ke flags
         flags.autoJumpButton = gui
         flags.autoJumpEnabled = false
 
-        -- Toggle tombol ON/OFF
+        -- Tombol ON/OFF
         btn.MouseButton1Click:Connect(function()
             flags.autoJumpEnabled = not flags.autoJumpEnabled
             btn.BackgroundColor3 = flags.autoJumpEnabled
@@ -311,12 +313,25 @@ MainTab:Toggle({
                 or  Color3.fromRGB(255, 100, 100) -- Merah = OFF
         end)
 
-        -- Loop utama: Auto Jump universal
-        conns.autoJump = game:GetService("RunService").Heartbeat:Connect(function()
+        -- Fungsi bantu untuk ambil humanoid
+        local function getHum()
+            local char = LocalPlayer.Character
+            if not char then return end
+            return char:FindFirstChildOfClass("Humanoid")
+        end
+
+        -- Loop utama (auto bhop)
+        conns.autoJump = RunService.Heartbeat:Connect(function()
             if not flags.autoJumpEnabled then return end
-            local hum = getHum and getHum() or (game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid"))
-            if hum then
-                hum.Jump = true
+
+            local hum = getHum()
+            if hum and hum.Health > 0 then
+                -- Saat di tanah, langsung lompat (bhop)
+                if hum:GetState() == Enum.HumanoidStateType.Running
+                or hum:GetState() == Enum.HumanoidStateType.RunningNoPhysics
+                or hum:GetState() == Enum.HumanoidStateType.Landed then
+                    hum.Jump = true
+                end
             end
         end)
     end
