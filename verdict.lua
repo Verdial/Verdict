@@ -263,7 +263,6 @@ MainTab:Toggle({
         flags.autoJump = v
         safeDisconnect(conns.autoJump)
 
-        -- hapus gui lama jika ada
         if flags.autoJumpButton then
             flags.autoJumpButton:Destroy()
             flags.autoJumpButton = nil
@@ -271,7 +270,7 @@ MainTab:Toggle({
 
         if not v then return end
 
-        -- buat tombol di pojok kanan bawah
+        --// Buat tombol pojok kanan bawah
         local gui = Instance.new("ScreenGui")
         gui.Name = "AutoJumpGUI"
         gui.ResetOnSpawn = false
@@ -284,7 +283,7 @@ MainTab:Toggle({
         btn.Size = UDim2.new(0, 55, 0, 55)
         btn.AnchorPoint = Vector2.new(1, 1)
         btn.Position = UDim2.new(1, -25, 1, -25)
-        btn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+        btn.BackgroundColor3 = Color3.fromRGB(255, 100, 100) -- merah = off
         btn.TextColor3 = Color3.new(1, 1, 1)
         btn.BorderSizePixel = 0
         btn.ZIndex = 9999
@@ -294,25 +293,25 @@ MainTab:Toggle({
         corner.CornerRadius = UDim.new(1, 0)
         corner.Parent = btn
 
-        flags.autoJumpEnabled = false
         flags.autoJumpButton = gui
+        flags.autoJumpEnabled = false
 
-        -- fungsi toggle manual
+        --// Klik tombol untuk toggle ON/OFF
         btn.MouseButton1Click:Connect(function()
             flags.autoJumpEnabled = not flags.autoJumpEnabled
             btn.BackgroundColor3 = flags.autoJumpEnabled
-                and Color3.fromRGB(100, 255, 100)
-                or  Color3.fromRGB(255, 100, 100)
+                and Color3.fromRGB(100, 255, 100) -- hijau = on
+                or  Color3.fromRGB(255, 100, 100) -- merah = off
         end)
 
-        -- koneksi utama untuk auto bhop
+        --// Loop utama: auto bhop (menahan tombol jump)
         conns.autoJump = RunService.Heartbeat:Connect(function()
             if not flags.autoJumpEnabled then return end
 
             local hum = getHum()
             if not hum or hum.Health <= 0 then return end
 
-            -- jika pemain menyentuh tanah, langsung lompat
+            -- Jika di tanah, aktifkan jump (seperti tahan tombol)
             if hum.FloorMaterial ~= Enum.Material.Air then
                 hum.Jump = true
             end
