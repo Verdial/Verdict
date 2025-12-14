@@ -41,7 +41,7 @@ end
 
 local function getHum(plr)
     local c = getChar(plr)
-    return c:FindFirstChildOfClass("Humanoid")
+    return c: FindFirstChildOfClass("Humanoid")
 end
 
 local function getHRP(plr)
@@ -57,10 +57,49 @@ end
 local function sortedPlayers()
     local list = {}
     for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer then table.insert(list, plr.Name) end
+        if plr ~= LocalPlayer then table.insert(list, plr. Name) end
     end
     table.sort(list)
     return list
+end
+
+--// Aimbot Helpers
+local function isAlive(char)
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    return hum and hum. Health > 0
+end
+
+local function getClosestTarget()
+    local closest
+    local shortest = flags.aimbotFOV or 120
+    local screenCenter = Vector2.new(
+        Camera.ViewportSize.X / 2,
+        Camera.ViewportSize.Y / 2
+    )
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            if flags.aimbotTeamCheck and plr.Team == LocalPlayer.Team then
+                continue
+            end
+
+            local char = plr.Character
+            local part = char and char:FindFirstChild(flags.aimbotLockPart or "Head")
+
+            if char and part and (not flags.aimbotAliveCheck or isAlive(char)) then
+                local pos, onscreen = Camera:WorldToViewportPoint(part.Position)
+                if onscreen then
+                    local dist = (Vector2.new(pos.X, pos.Y) - screenCenter).Magnitude
+                    if dist < shortest then
+                        shortest = dist
+                        closest = part
+                    end
+                end
+            end
+        end
+    end
+
+    return closest
 end
 
 --// Save original lighting
@@ -82,7 +121,7 @@ local function restoreLighting()
     -- re-enable post effects yang sempat dimatikan
     for _, eff in ipairs(Lighting:GetChildren()) do
         if eff:IsA("PostEffect") then
-            eff.Enabled = true
+            eff. Enabled = true
         end
     end
 end
@@ -149,12 +188,12 @@ local function applyBoost(mode)
     if mode == "Lite" then
         for _, o in ipairs(workspace:GetDescendants()) do optimizeLite(o) end
         safeDisconnect(conns.boostWatcher)
-        conns.boostWatcher = workspace.DescendantAdded:Connect(optimizeLite)
+        conns.boostWatcher = workspace. DescendantAdded:Connect(optimizeLite)
 
     elseif mode == "Balanced" then
         for _, o in ipairs(workspace:GetDescendants()) do optimizeBalanced(o) end
         safeDisconnect(conns.boostWatcher)
-        conns.boostWatcher = workspace.DescendantAdded:Connect(optimizeBalanced)
+        conns.boostWatcher = workspace. DescendantAdded:Connect(optimizeBalanced)
 
     elseif mode == "Ultra" then
         for _, o in ipairs(workspace:GetDescendants()) do optimizeBalanced(o) end
@@ -164,8 +203,8 @@ local function applyBoost(mode)
         pcall(function()
             Lighting.GlobalShadows   = false
             Lighting.Brightness      = 1
-            Lighting.FogEnd          = 1e9
-            Lighting.Ambient         = Color3.new(1, 1, 1)
+            Lighting. FogEnd          = 1e9
+            Lighting. Ambient         = Color3.new(1, 1, 1)
             Workspace.StreamingEnabled   = true
             Workspace.StreamingMinRadius = 64
         end)
@@ -173,13 +212,13 @@ local function applyBoost(mode)
 end
 
 local function restoreBoost()
-    safeDisconnect(conns.boostWatcher)
+    safeDisconnect(conns. boostWatcher)
     restoreLighting()
 end
 
 --// UI Init
 local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
-WindUI:ToggleAcrylic(false)
+WindUI: ToggleAcrylic(false)
 
 local Window = WindUI:CreateWindow({
     Title        = "Verdict",
@@ -205,7 +244,7 @@ MainTab:Toggle({
             conns.noclip = RunService.Stepped:Connect(function()
                 local char = getChar()
                 for _, part in ipairs(char:GetChildren()) do
-                    if part:IsA("BasePart") then part.CanCollide = false end
+                    if part: IsA("BasePart") then part. CanCollide = false end
                 end
             end)
         end
@@ -232,7 +271,7 @@ MainTab:Toggle({
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= LocalPlayer and plr.Character then
                     for _, part in ipairs(plr.Character:GetDescendants()) do
-                        if part:IsA("BasePart") then part.CanCollide = true end
+                        if part: IsA("BasePart") then part.CanCollide = true end
                     end
                 end
             end
@@ -249,7 +288,7 @@ MainTab:Toggle({
         if v then
             conns.infiniteJump = UIS.JumpRequest:Connect(function()
                 local hum = getHum()
-                if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+                if hum then hum: ChangeState(Enum.HumanoidStateType.Jumping) end
             end)
         end
     end
@@ -262,7 +301,7 @@ MainTab:Toggle({
     Title = "Fullbright",
     Default = false,
     Callback = function(v)
-        safeDisconnect(conns.fullbright)
+        safeDisconnect(conns. fullbright)
         if v then
             saveLighting()
             conns.fullbright = RunService.RenderStepped:Connect(function()
@@ -295,6 +334,69 @@ MainTab:Toggle({
     end
 })
 
+--// Combat Tab
+local CombatTab = Window:Tab({ Title = "Combat", Icon = "crosshair" })
+CombatTab:Section({ Title = "Aimbot" })
+
+CombatTab:Toggle({
+    Title = "Aimbot",
+    Default = false,
+    Callback = function(v)
+        flags.aimbot = v
+        safeDisconnect(conns.aimbot)
+        if v then
+            conns. aimbot = RunService.RenderStepped:Connect(function()
+                local target = getClosestTarget()
+                if target then
+                    local camPos = Camera.CFrame.Position
+                    local targetPos = target.Position
+                    local newCF = CFrame.new(camPos, targetPos)
+                    Camera.CFrame = Camera. CFrame: Lerp(newCF, flags.aimbotSmoothness or 0.15)
+                end
+            end)
+        end
+    end
+})
+
+local fovSlider
+fovSlider = CombatTab: Slider({
+    Title = "FOV [ " .. tostring(flags.aimbotFOV or 120) .. " ]",
+    Value = { Min = 40, Max = 300, Default = 120, Step = 10 },
+    Callback = function(val)
+        flags.aimbotFOV = val
+        safeSetTitle(fovSlider, "FOV [ " .. tostring(val) .. " ]")
+    end
+})
+
+local smoothSlider
+smoothSlider = CombatTab:Slider({
+    Title = "Smoothness [ " .. string.format("%.2f", flags.aimbotSmoothness or 0.15) .. " ]",
+    Value = { Min = 0.01, Max = 0.5, Default = 0.15, Step = 0.01 },
+    Callback = function(val)
+        flags.aimbotSmoothness = val
+        safeSetTitle(smoothSlider, "Smoothness [ " ..  string.format("%.2f", val) .. " ]")
+    end
+})
+
+CombatTab: Dropdown({
+    Title = "Lock Part",
+    Values = { "Head", "Torso", "HumanoidRootPart" },
+    Default = "Head",
+    Callback = function(opt) flags.aimbotLockPart = opt end
+})
+
+CombatTab:Toggle({
+    Title = "Team Check",
+    Default = false,
+    Callback = function(v) flags.aimbotTeamCheck = v end
+})
+
+CombatTab:Toggle({
+    Title = "Alive Check",
+    Default = true,
+    Callback = function(v) flags.aimbotAliveCheck = v end
+})
+
 --// Teleport Tab
 local TeleTab = Window:Tab({ Title = "Teleport", Icon = "map" })
 TeleTab:Section({ Title = "Player Teleport" })
@@ -313,7 +415,7 @@ TeleTab:Button({
         if selectedPlayer then
             local target = Players:FindFirstChild(selectedPlayer)
             local hrp = target and getHRP(target)
-            if hrp then teleportTo(hrp.CFrame + Vector3.new(0, 3, 0)) end
+            if hrp then teleportTo(hrp. CFrame + Vector3.new(0, 3, 0)) end
         end
     end
 })
@@ -322,7 +424,7 @@ TeleTab:Button({
     Title = "Refresh List",
     Callback = function()
         local list = sortedPlayers()
-        TeleDropdown:Refresh(list)
+        TeleDropdown: Refresh(list)
         if selectedPlayer and table.find(list, selectedPlayer) then
             TeleDropdown:Select(selectedPlayer)
         else
@@ -350,7 +452,7 @@ MiscTab:Button({
     Callback = function()
         local target = spectTarget and Players:FindFirstChild(spectTarget)
         if target and target.Character then
-            Camera.CameraSubject = target.Character
+            Camera. CameraSubject = target.Character
         end
     end
 })
@@ -415,7 +517,7 @@ MiscTab:Button({
 --// Camera
 MiscTab:Section({ Title = "Camera" })
 
-local FreeCam = loadstring(game:HttpGet("https://raw.githubusercontent.com/Verdial/Verdict/refs/heads/main/fc_core.lua"))()
+local FreeCam = loadstring(game: HttpGet("https://raw.githubusercontent.com/Verdial/Verdict/refs/heads/main/fc_core.lua"))()
 MiscTab:Toggle({
     Title = "Free Cam",
     Default = false,
@@ -447,9 +549,9 @@ MiscTab:Toggle({
             conns.inputHandler = UIS.InputChanged:Connect(function(input)
                 if input.UserInputType == Enum.UserInputType.MouseMovement then
                     local d = input.Delta
-                    local x = -d.X * 0.002 * flags.sensitivity
+                    local x = -d. X * 0.002 * flags.sensitivity
                     local y = -d.Y * 0.002 * flags.sensitivity
-                    Camera.CFrame = Camera.CFrame * CFrame.Angles(0, x, 0) * CFrame.Angles(y, 0, 0)
+                    Camera.CFrame = Camera.CFrame * CFrame. Angles(0, x, 0) * CFrame.Angles(y, 0, 0)
                 end
             end)
         elseif UIS.TouchEnabled then
@@ -459,7 +561,7 @@ MiscTab:Toggle({
                 local d = touch.Delta
                 local x = -d.X * 0.002 * flags.sensitivity
                 local y = -d.Y * 0.002 * flags.sensitivity
-                Camera.CFrame = Camera.CFrame * CFrame.Angles(0, x, 0) * CFrame.Angles(y, 0, 0)
+                Camera.CFrame = Camera.CFrame * CFrame. Angles(0, x, 0) * CFrame.Angles(y, 0, 0)
             end)
         end
     end
@@ -518,9 +620,9 @@ MiscTab:Button({
 })
 
 --// Unload
-Window:Unload(function()
+Window: Unload(function()
     clearAll()
-    Camera.CameraSubject = getHum() or getChar()
+    Camera. CameraSubject = getHum() or getChar()
     if capSupported() then
         doSetCap(originalCap) -- reset FPS cap saat UI ditutup
     end
