@@ -1,33 +1,35 @@
 -- Cleanup previous instance
 if _G.VerdictObsidianUI then
-    if type(_G.VerdictObsidianUI.Unload) == "function" then
-        pcall(function() _G.VerdictObsidianUI:Unload() end)
+    local prev = _G.VerdictObsidianUI
+    if type(prev.Unload) == "function" then
+        pcall(function() prev:Unload() end)
     end
     _G.VerdictObsidianUI = nil
 end
 
 -- Services (cached)
-local Srv = {
-    Players    = game:GetService("Players"),
-    RunService = game:GetService("RunService"),
-    UIS        = game:GetService("UserInputService"),
-    Lighting   = game:GetService("Lighting"),
-    Workspace  = game:GetService("Workspace"),
-}
-local Players, RunService, UIS, Lighting, Workspace = Srv.Players, Srv.RunService, Srv.UIS, Srv.Lighting, Srv.Workspace
-local workspace = Workspace -- keep consistent lowercase usage below
+local Players    = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS        = game:GetService("UserInputService")
+local Lighting   = game:GetService("Lighting")
+local Workspace  = game:GetService("Workspace")
+local workspace  = Workspace -- consistent lowercase usage
 
--- Vars
+-- Locals
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local conns = {}
+
+-- Default flags
 local flags = {
     aimbotFOV = 120,
     aimbotSmoothness = 0.15,
     aimbotLockPart = "Head",
     aimbotAliveCheck = true,
     sensitivity = 1.0,
+    positionSlot = 1,
 }
+
 local savedSlots = {}
 local originalLighting = {}
 local originalCap = 60
@@ -39,16 +41,25 @@ end
 
 local function safeDisconnect(conn)
     if conn then
-        safeCall(function() conn:Disconnect() end)
+        -- pcall to avoid errors if already disconnected or invalid
+        pcall(function() conn:Disconnect() end)
     end
 end
 
 local function setConnection(key, conn)
+    if not key then return end
     if conns[key] then safeDisconnect(conns[key]) end
     conns[key] = conn
 end
 
-local function clearAll()
+local function disconnectKey(key)
+    if conns[key] then
+        safeDisconnect(conns[key])
+        conns[key] = nil
+    end
+end
+
+local function clearAllConnections()
     for k, v in pairs(conns) do
         safeDisconnect(v)
         conns[k] = nil
@@ -56,19 +67,17 @@ local function clearAll()
 end
 
 local function safeSetTitle(elem, text)
-    safeCall(function()
-        if elem and elem.SetTitle then elem:SetTitle(text) end
-    end)
+    if elem and type(elem.SetTitle) == "function" then
+        pcall(function() elem:SetTitle(text) end)
+    end
 end
 
--- getChar: if wait == true, yields until character exists. Otherwise returns character or nil.
+-- Character utilities
 local function getChar(plr, wait)
     plr = plr or LocalPlayer
     if not plr then return nil end
     if plr.Character then return plr.Character end
-    if wait then
-        return plr.CharacterAdded:Wait()
-    end
+    if wait and plr.CharacterAdded then return plr.CharacterAdded:Wait() end
     return nil
 end
 
@@ -83,17 +92,15 @@ local function getHRP(plr, wait)
 end
 
 local function teleportTo(cf)
-    local hrp = getHRP(LocalPlayer)
-    if hrp and cf then
-        hrp.CFrame = cf
-    end
+    local hrp = getHRP(nil, false)
+    if hrp and cf then hrp.CFrame = cf end
 end
 
 local function sortedPlayers()
     local out = {}
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer then
-            table.insert(out, p.Name)
+            out[#out + 1] = p.Name
         end
     end
     table.sort(out)
@@ -103,31 +110,33 @@ end
 -- Aimbot helpers
 local function isAlive(char)
     local hum = char and char:FindFirstChildOfClass("Humanoid")
-    return hum and hum.Health > 0
+    return hum and hum.Health and hum.Health > 0
 end
 
 local function getClosestTarget()
-    if not Camera then return nil end
-    local closest = nil
-    local shortest = flags.aimbotFOV or 120
-    local vpSize = Camera.ViewportSize
-    local screenCenter = Vector2.new(vpSize.X * 0.5, vpSize.Y * 0.5)
+    local cam = workspace.CurrentCamera or Camera
+    if not cam then return nil end
 
-    for _, plr in ipairs(Players:GetPlayers()) do
+    local players = Players:GetPlayers()
+    local vpSize = cam.ViewportSize
+    local screenCenter = Vector2.new(vpSize.X * 0.5, vpSize.Y * 0.5)
+    local shortest = flags.aimbotFOV or 120
+    local closestPart = nil
+
+    for i = 1, #players do
+        local plr = players[i]
         if plr ~= LocalPlayer then
-            if flags.aimbotTeamCheck and LocalPlayer and plr.Team == LocalPlayer.Team then
-                -- skip teammates
-            else
+            if not (flags.aimbotTeamCheck and LocalPlayer and plr.Team == LocalPlayer.Team) then
                 local char = plr.Character
                 if char then
                     local part = char:FindFirstChild(flags.aimbotLockPart or "Head")
                     if part and (not flags.aimbotAliveCheck or isAlive(char)) then
-                        local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                        local pos, onScreen = cam:WorldToViewportPoint(part.Position)
                         if onScreen then
                             local d = (Vector2.new(pos.X, pos.Y) - screenCenter).Magnitude
                             if d < shortest then
                                 shortest = d
-                                closest = part
+                                closestPart = part
                             end
                         end
                     end
@@ -136,7 +145,7 @@ local function getClosestTarget()
         end
     end
 
-    return closest
+    return closestPart
 end
 
 -- Lighting save/restore
@@ -152,16 +161,17 @@ end
 
 local function restoreLighting()
     for k, v in pairs(originalLighting) do
-        safeCall(function() Lighting[k] = v end)
+        pcall(function() Lighting[k] = v end)
     end
+    -- re-enable post effects
     for _, eff in ipairs(Lighting:GetChildren()) do
         if eff:IsA("PostEffect") then
-            eff.Enabled = true
+            pcall(function() eff.Enabled = true end)
         end
     end
 end
 
--- FPS Cap API helpers
+-- FPS cap utilities
 local function capSupported()
     return typeof(setfpscap) == "function"
         or typeof(set_fps_cap) == "function"
@@ -178,30 +188,52 @@ local function doSetCap(n)
     end
 end
 
--- try to read original cap safely
+-- Read original cap once
 if capSupported() then
     originalCap = (typeof(getfpscap) == "function" and getfpscap())
         or (typeof(get_fps_cap) == "function" and get_fps_cap())
         or (syn and typeof(syn.get_fps_cap) == "function" and syn.get_fps_cap())
-        or 60
+        or originalCap
 end
 
--- BoostFPS helpers
+-- BoostFPS helpers: use lookup tables for class checks (faster than repeated IsA chains)
+local disableEnabledClasses = {
+    ParticleEmitter = true,
+    Trail = true,
+    Smoke = true,
+    Fire = true,
+    Beam = true,
+    Highlight = true,
+}
+local lightClasses = {
+    PointLight = true,
+    SpotLight = true,
+    SurfaceLight = true,
+}
+local textureClasses = {
+    Decal = true,
+    Texture = true,
+}
+local partClasses = {
+    BasePart = true,
+    UnionOperation = true,
+    MeshPart = true,
+}
+
 local function optimizeLite(obj)
-    if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke")
-    or obj:IsA("Fire") or obj:IsA("Beam") or obj:IsA("Highlight") then
-        safeCall(function() obj.Enabled = false end)
-    elseif obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
-        safeCall(function() obj.Enabled = false end)
+    local class = obj.ClassName
+    if disableEnabledClasses[class] or lightClasses[class] then
+        pcall(function() obj.Enabled = false end)
     end
 end
 
 local function optimizeBalanced(obj)
     optimizeLite(obj)
-    if obj:IsA("Decal") or obj:IsA("Texture") then
-        safeCall(function() obj.Transparency = 1 end)
-    elseif obj:IsA("BasePart") or obj:IsA("UnionOperation") or obj:IsA("MeshPart") then
-        safeCall(function()
+    local class = obj.ClassName
+    if textureClasses[class] then
+        pcall(function() obj.Transparency = 1 end)
+    elseif partClasses[class] then
+        pcall(function()
             obj.Material = Enum.Material.Plastic
             obj.Reflectance = 0
         end)
@@ -213,23 +245,23 @@ local function applyBoost(mode)
     -- disable post effects
     for _, eff in ipairs(Lighting:GetChildren()) do
         if eff:IsA("PostEffect") then
-            eff.Enabled = false
+            pcall(function() eff.Enabled = false end)
         end
     end
 
-    -- initial pass + connect watcher
-    if mode == "Lite" then
-        for _, o in ipairs(workspace:GetDescendants()) do optimizeLite(o) end
-        setConnection("boostWatcher", workspace.DescendantAdded:Connect(optimizeLite))
+    -- initial traversal + watcher
+    local walker = (mode == "Lite" and optimizeLite) or optimizeBalanced
 
-    elseif mode == "Balanced" then
-        for _, o in ipairs(workspace:GetDescendants()) do optimizeBalanced(o) end
-        setConnection("boostWatcher", workspace.DescendantAdded:Connect(optimizeBalanced))
+    for _, o in ipairs(workspace:GetDescendants()) do
+        pcall(function() walker(o) end)
+    end
 
-    elseif mode == "Ultra" then
-        for _, o in ipairs(workspace:GetDescendants()) do optimizeBalanced(o) end
-        setConnection("boostWatcher", workspace.DescendantAdded:Connect(optimizeBalanced))
-        safeCall(function()
+    setConnection("boostWatcher", workspace.DescendantAdded:Connect(function(o)
+        pcall(function() walker(o) end)
+    end))
+
+    if mode == "Ultra" then
+        pcall(function()
             Lighting.GlobalShadows = false
             Lighting.Brightness = 1
             Lighting.FogEnd = 1e9
@@ -241,22 +273,21 @@ local function applyBoost(mode)
 end
 
 local function restoreBoost()
-    safeDisconnect(conns.boostWatcher)
+    disconnectKey("boostWatcher")
     restoreLighting()
 end
 
 -- UI Init (Obsidian)
 local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
 local Library, ThemeManager, SaveManager
-
 local ok, lib = pcall(function()
     return loadstring(game:HttpGet(repo .. "Library.lua"))()
 end)
 
 if ok and type(lib) == "table" then
     Library = lib
-    safeCall(function() ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))() end)
-    safeCall(function() SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))() end)
+    pcall(function() ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))() end)
+    pcall(function() SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))() end)
 else
     error("Unable to load Obsidian UI library.")
 end
@@ -287,15 +318,15 @@ PlayerBox:AddToggle("NoClip", {
     Default = false,
     Callback = function(v)
         flags.noclip = v
-        safeDisconnect(conns.noclip)
+        disconnectKey("noclip")
         if v then
-            -- Use Stepped to keep in sync with physics transforms
+            -- Stepped keeps sync with physics transforms
             setConnection("noclip", RunService.Stepped:Connect(function()
                 local char = getChar(nil, false)
                 if not char then return end
                 for _, part in ipairs(char:GetDescendants()) do
                     if part:IsA("BasePart") then
-                        part.CanCollide = false
+                        pcall(function() part.CanCollide = false end)
                     end
                 end
             end))
@@ -308,7 +339,7 @@ PlayerBox:AddToggle("DisableCollision", {
     Default = false,
     Callback = function(v)
         flags.noCollision = v
-        safeDisconnect(conns.noCollision)
+        disconnectKey("noCollision")
         if v then
             setConnection("noCollision", RunService.Heartbeat:Connect(function()
                 for _, plr in ipairs(Players:GetPlayers()) do
@@ -317,7 +348,7 @@ PlayerBox:AddToggle("DisableCollision", {
                         if char then
                             for _, part in ipairs(char:GetDescendants()) do
                                 if part:IsA("BasePart") then
-                                    part.CanCollide = false
+                                    pcall(function() part.CanCollide = false end)
                                 end
                             end
                         end
@@ -332,7 +363,7 @@ PlayerBox:AddToggle("DisableCollision", {
                     if char then
                         for _, part in ipairs(char:GetDescendants()) do
                             if part:IsA("BasePart") then
-                                part.CanCollide = true
+                                pcall(function() part.CanCollide = true end)
                             end
                         end
                     end
@@ -347,11 +378,11 @@ PlayerBox:AddToggle("InfiniteJump", {
     Default = false,
     Callback = function(v)
         flags.infiniteJump = v
-        safeDisconnect(conns.infiniteJump)
+        disconnectKey("infiniteJump")
         if v then
             setConnection("infiniteJump", UIS.JumpRequest:Connect(function()
                 local hum = getHum(nil, false)
-                if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+                if hum then pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end) end
             end))
         end
     end
@@ -364,7 +395,7 @@ VisualBox:AddToggle("Fullbright", {
     Text = "Fullbright",
     Default = false,
     Callback = function(v)
-        safeDisconnect(conns.fullbright)
+        disconnectKey("fullbright")
         if v then
             saveLighting()
             setConnection("fullbright", RunService.RenderStepped:Connect(function()
@@ -388,7 +419,7 @@ UtilityBox:AddToggle("ClickTeleport", {
     Default = false,
     Callback = function(v)
         flags.clickTp = v
-        safeDisconnect(conns.clickTp)
+        disconnectKey("clickTp")
         if v and LocalPlayer then
             local mouse = LocalPlayer:GetMouse()
             setConnection("clickTp", mouse.Button1Down:Connect(function()
@@ -406,15 +437,15 @@ AimBox:AddToggle("Aimbot", {
     Default = false,
     Callback = function(v)
         flags.aimbot = v
-        safeDisconnect(conns.aimbot)
+        disconnectKey("aimbot")
         if v then
             setConnection("aimbot", RunService.RenderStepped:Connect(function()
                 local target = getClosestTarget()
-                if target and Camera then
-                    local camPos = Camera.CFrame.Position
-                    local targetPos = target.Position
-                    local newCF = CFrame.new(camPos, targetPos)
-                    Camera.CFrame = Camera.CFrame:Lerp(newCF, flags.aimbotSmoothness or 0.15)
+                local cam = workspace.CurrentCamera or Camera
+                if target and cam then
+                    local camPos = cam.CFrame.Position
+                    local newCF = CFrame.new(camPos, target.Position)
+                    cam.CFrame = cam.CFrame:Lerp(newCF, flags.aimbotSmoothness or 0.15)
                 end
             end))
         end
@@ -428,9 +459,7 @@ AimBox:AddSlider("AimbotFOV", {
     Max = 300,
     Rounding = 0,
     Compact = false,
-    Callback = function(val)
-        flags.aimbotFOV = val
-    end,
+    Callback = function(val) flags.aimbotFOV = val end,
 })
 
 AimBox:AddSlider("AimbotSmoothness", {
@@ -439,31 +468,18 @@ AimBox:AddSlider("AimbotSmoothness", {
     Min = 0.01,
     Max = 0.5,
     Rounding = 2,
-    Callback = function(val)
-        flags.aimbotSmoothness = val
-    end,
+    Callback = function(val) flags.aimbotSmoothness = val end,
 })
 
 AimBox:AddDropdown("AimbotLockPart", {
     Values = { "Head", "Torso", "HumanoidRootPart" },
     Default = 1,
     Text = "Lock Part",
-    Callback = function(val)
-        flags.aimbotLockPart = val
-    end,
+    Callback = function(val) flags.aimbotLockPart = val end,
 })
 
-AimBox:AddToggle("AimbotTeamCheck", {
-    Text = "Team Check",
-    Default = false,
-    Callback = function(v) flags.aimbotTeamCheck = v end
-})
-
-AimBox:AddToggle("AimbotAliveCheck", {
-    Text = "Alive Check",
-    Default = true,
-    Callback = function(v) flags.aimbotAliveCheck = v end
-})
+AimBox:AddToggle("AimbotTeamCheck", { Text = "Team Check", Default = false, Callback = function(v) flags.aimbotTeamCheck = v end })
+AimBox:AddToggle("AimbotAliveCheck", { Text = "Alive Check", Default = true, Callback = function(v) flags.aimbotAliveCheck = v end })
 
 -- Teleport Tab -> Player Teleport
 local TeleBox = Tabs.Teleport:AddLeftGroupbox("Player Teleport", "map")
@@ -472,7 +488,7 @@ TeleBox:AddDropdown("TeleportPlayer", {
     SpecialType = "Player",
     ExcludeLocalPlayer = true,
     Text = "Pilih Pemain",
-    Callback = function(val) end
+    Callback = function() end
 })
 
 TeleBox:AddButton({
@@ -490,7 +506,7 @@ TeleBox:AddButton({
     Func = function()
         local list = sortedPlayers()
         if Library.Options and Library.Options.TeleportPlayer and Library.Options.TeleportPlayer.SetValues then
-            safeCall(function() Library.Options.TeleportPlayer:SetValues(list) end)
+            pcall(function() Library.Options.TeleportPlayer:SetValues(list) end)
         end
     end
 })
@@ -502,7 +518,7 @@ SpectBox:AddDropdown("SpectatePlayer", {
     SpecialType = "Player",
     ExcludeLocalPlayer = true,
     Text = "Spectate Player",
-    Callback = function(val) end
+    Callback = function() end
 })
 
 SpectBox:AddButton({
@@ -511,7 +527,7 @@ SpectBox:AddButton({
         local playerName = Library.Options and Library.Options.SpectatePlayer and Library.Options.SpectatePlayer.Value
         local target = playerName and Players:FindFirstChild(playerName)
         if target and target.Character then
-            Camera.CameraSubject = target.Character
+            workspace.CurrentCamera.CameraSubject = target.Character
         end
     end
 })
@@ -519,7 +535,7 @@ SpectBox:AddButton({
 SpectBox:AddButton({
     Text = "Berhenti Spectate",
     Func = function()
-        Camera.CameraSubject = getHum(nil, false) or getChar(nil, false)
+        workspace.CurrentCamera.CameraSubject = getHum(nil, false) or getChar(nil, false)
     end
 })
 
@@ -528,7 +544,7 @@ SpectBox:AddButton({
     Func = function()
         local list = sortedPlayers()
         if Library.Options and Library.Options.SpectatePlayer and Library.Options.SpectatePlayer.SetValues then
-            safeCall(function() Library.Options.SpectatePlayer:SetValues(list) end)
+            pcall(function() Library.Options.SpectatePlayer:SetValues(list) end)
         end
     end
 })
@@ -543,44 +559,29 @@ PosBox:AddDropdown("PositionSlot", {
     Callback = function(val) flags.positionSlot = tonumber(val) or 1 end
 })
 
-PosBox:AddButton({
-    Text = "Save Pos",
-    Func = function()
-        local hrp = getHRP(nil, false)
-        local slot = flags.positionSlot or 1
-        if hrp then savedSlots[slot] = hrp.Position end
-    end
-})
+PosBox:AddButton({ Text = "Save Pos", Func = function()
+    local hrp = getHRP(nil, false)
+    local slot = flags.positionSlot or 1
+    if hrp then savedSlots[slot] = hrp.Position end
+end })
 
-PosBox:AddButton({
-    Text = "Teleport Pos",
-    Func = function()
-        local slot = flags.positionSlot or 1
-        local pos = savedSlots[slot]
-        if pos then teleportTo(CFrame.new(pos + Vector3.new(0, 5, 0))) end
-    end
-})
+PosBox:AddButton({ Text = "Teleport Pos", Func = function()
+    local slot = flags.positionSlot or 1
+    local pos = savedSlots[slot]
+    if pos then teleportTo(CFrame.new(pos + Vector3.new(0, 5, 0))) end
+end })
 
-PosBox:AddButton({
-    Text = "Clear Slot",
-    Func = function()
-        local slot = flags.positionSlot or 1
-        savedSlots[slot] = nil
-    end
-})
+PosBox:AddButton({ Text = "Clear Slot", Func = function()
+    savedSlots[flags.positionSlot or 1] = nil
+end })
 
-PosBox:AddButton({
-    Text = "Clear All Slots",
-    Func = function()
-        table.clear(savedSlots)
-    end
-})
+PosBox:AddButton({ Text = "Clear All Slots", Func = function() table.clear(savedSlots) end })
 
 -- Misc -> Camera
 local CamBox = Tabs.Misc:AddRightGroupbox("Camera", "camera")
 
 local FreeCam = nil
-safeCall(function()
+pcall(function()
     FreeCam = loadstring(game:HttpGet("https://raw.githubusercontent.com/Verdial/Verdict/refs/heads/main/fc_core.lua"))()
 end)
 
@@ -599,37 +600,38 @@ CamBox:AddToggle("SmoothCamera", {
     Default = false,
     Callback = function(v)
         flags.smoothCam = v
-        safeDisconnect(conns.smoothCam)
-        safeDisconnect(conns.inputHandler)
+        disconnectKey("smoothCam")
+        disconnectKey("inputHandler")
         if not v then return end
 
-        local lastCF = Camera and Camera.CFrame or CFrame.new()
+        local cam = workspace.CurrentCamera or Camera
+        local lastCF = cam and cam.CFrame or CFrame.new()
         setConnection("smoothCam", RunService.RenderStepped:Connect(function()
-            if not Camera then return end
-            local goal = Camera.CFrame
-            lastCF = lastCF:Lerp(goal, 0.25)
-            Camera.CFrame = lastCF
+            local cur = (workspace.CurrentCamera or cam)
+            if not cur then return end
+            lastCF = lastCF:Lerp(cur.CFrame, 0.25)
+            cur.CFrame = lastCF
         end))
 
-        if UIS.MouseEnabled then
-            setConnection("inputHandler", UIS.InputChanged:Connect(function(input)
-                if input.UserInputType == Enum.UserInputType.MouseMovement then
-                    local d = input.Delta
-                    local x = -d.X * 0.002 * flags.sensitivity
-                    local y = -d.Y * 0.002 * flags.sensitivity
-                    Camera.CFrame = Camera.CFrame * CFrame.Angles(0, x, 0) * CFrame.Angles(y, 0, 0)
-                end
-            end))
-        elseif UIS.TouchEnabled then
-            setConnection("inputHandler", UIS.TouchMoved:Connect(function(touch)
-                local pos = touch.Position
-                if pos.X < Camera.ViewportSize.X * 0.5 then return end
-                local d = touch.Delta
+        -- Input handling (both mouse & touch)
+        setConnection("inputHandler", UIS.InputChanged:Connect(function(input)
+            local curCam = workspace.CurrentCamera or cam
+            if not curCam then return end
+            if input.UserInputType == Enum.UserInputType.MouseMovement and UIS.MouseEnabled then
+                local d = input.Delta
                 local x = -d.X * 0.002 * flags.sensitivity
                 local y = -d.Y * 0.002 * flags.sensitivity
-                Camera.CFrame = Camera.CFrame * CFrame.Angles(0, x, 0) * CFrame.Angles(y, 0, 0)
-            end))
-        end
+                curCam.CFrame = curCam.CFrame * CFrame.Angles(0, x, 0) * CFrame.Angles(y, 0, 0)
+            elseif input.UserInputType == Enum.UserInputType.Touch and UIS.TouchEnabled then
+                local d = input.Delta
+                local x = -d.X * 0.002 * flags.sensitivity
+                local y = -d.Y * 0.002 * flags.sensitivity
+                -- only update if touch is on right half (preserve UI / left controls)
+                if input.Position and curCam and input.Position.X >= (curCam.ViewportSize.X * 0.5) then
+                    curCam.CFrame = curCam.CFrame * CFrame.Angles(0, x, 0) * CFrame.Angles(y, 0, 0)
+                end
+            end
+        end))
     end
 })
 
@@ -639,9 +641,7 @@ CamBox:AddSlider("Sensitivity", {
     Min = 0.1,
     Max = 10.0,
     Rounding = 1,
-    Callback = function(val)
-        flags.sensitivity = val
-    end
+    Callback = function(val) flags.sensitivity = val end
 })
 
 -- Misc -> Utility / Performance
@@ -663,23 +663,15 @@ PerfBox:AddDropdown("BoostMode", {
     Values = { "Lite", "Balanced", "Ultra" },
     Default = 1,
     Text = "BoostFPS Mode",
-    Callback = function(val)
-        flags.boostMode = val
-    end
+    Callback = function(val) flags.boostMode = val end
 })
 
-PerfBox:AddButton({
-    Text = "Apply Boost",
-    Func = function()
-        restoreBoost()
-        applyBoost(flags.boostMode or "Lite")
-    end
-})
+PerfBox:AddButton({ Text = "Apply Boost", Func = function()
+    restoreBoost()
+    applyBoost(flags.boostMode or "Lite")
+end })
 
-PerfBox:AddButton({
-    Text = "Restore Boost",
-    Func = function() restoreBoost() end
-})
+PerfBox:AddButton({ Text = "Restore Boost", Func = function() restoreBoost() end })
 
 -- UI Settings (Theme/Save)
 if ThemeManager and SaveManager then
@@ -692,8 +684,8 @@ end
 
 -- Unload handler
 Library:OnUnload(function()
-    clearAll()
-    Camera.CameraSubject = getHum(nil, false) or getChar(nil, false)
+    clearAllConnections()
+    workspace.CurrentCamera.CameraSubject = getHum(nil, false) or getChar(nil, false)
     if capSupported() then
         doSetCap(originalCap)
     end
