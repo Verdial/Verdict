@@ -26,8 +26,13 @@ local flags = {
     aimbotSmoothness = 0.15,
     aimbotLockPart = "Head",
     aimbotAliveCheck = true,
+    aimbotTeamCheck = false,
     sensitivity = 1.0,
     positionSlot = 1,
+    prediction = 0.12,
+    showFOV = false,
+    fovColor = Color3.fromRGB(255,255,255),
+    fovThickness = 2,
 }
 
 local savedSlots = {}
@@ -113,6 +118,107 @@ local function isAlive(char)
     return hum and hum.Health and hum.Health > 0
 end
 
+-- small clamp helper (Roblox/Luau has math.clamp but we keep safe)
+local function clamp(x, a, b) return math.max(a, math.min(b, x)) end
+
+-- get velocity with fallbacks (AssemblyLinearVelocity preferred on R15)
+local function getPartVelocity(part)
+    if not part then return Vector3.new(0,0,0) end
+    local ok, vel = pcall(function()
+        -- AssemblyLinearVelocity is more consistent on modern rigs
+        if part.AssemblyLinearVelocity then
+            return part.AssemblyLinearVelocity
+        else
+            return part.Velocity or Vector3.new(0,0,0)
+        end
+    end)
+    return (ok and vel) and vel or Vector3.new(0,0,0)
+end
+
+-- Robust target resolution: try several common parts, primary part, bounding box center, or any BasePart fallback
+local function resolveTargetPositionFromCharacter(char, preferredPart)
+    if not char then return nil end
+    -- if preferredPart provided and exists, try it first
+    if preferredPart and type(preferredPart) == "string" then
+        local p = char:FindFirstChild(preferredPart)
+        if p and p:IsA("BasePart") then
+            return p.Position, p
+        end
+    end
+    -- prioritized names
+    local priorities = { "Head", "UpperTorso", "Torso", "HumanoidRootPart", "LowerTorso" }
+    for _, name in ipairs(priorities) do
+        local p = char:FindFirstChild(name)
+        if p and p:IsA("BasePart") then
+            return p.Position, p
+        end
+    end
+    -- PrimaryPart if set
+    if char.PrimaryPart and char.PrimaryPart:IsA("BasePart") then
+        return char.PrimaryPart.Position, char.PrimaryPart
+    end
+    -- try bounding box center
+    local ok, cf = pcall(function() return char:GetBoundingBox() end)
+    if ok and cf then
+        return cf.Position, nil -- no actual part, but pos works
+    end
+    -- fallback: first BasePart found
+    for _, v in ipairs(char:GetDescendants()) do
+        if v:IsA("BasePart") then
+            return v.Position, v
+        end
+    end
+    return nil
+end
+
+-- Predict position using velocity if available (simple linear)
+local function predictPositionFromPart(part)
+    if not part then return nil end
+    local pos = nil
+    local ok, ppos = pcall(function() return part.Position end)
+    if ok and ppos then pos = ppos end
+    if not pos then return nil end
+    local vel = getPartVelocity(part)
+    local pred = (flags.prediction or 0) * 1.0
+    return pos + vel * pred
+end
+
+local function predictPositionFromVector3(pos)
+    if not pos then return nil end
+    return pos
+end
+
+-- Drawing (FOV) support - use Drawing API if available
+local DrawingLib = nil
+pcall(function() DrawingLib = Drawing or drawing end) -- some exploits use lowercase 'drawing'
+
+local fovCircle = nil
+
+local function createFOVCircle()
+    if not DrawingLib then return end
+    if fovCircle then
+        pcall(function() fovCircle:Remove() end)
+        fovCircle = nil
+    end
+    pcall(function()
+        fovCircle = DrawingLib.new("Circle")
+        fovCircle.Visible = false
+        fovCircle.Color = flags.fovColor or Color3.fromRGB(255,255,255)
+        fovCircle.Thickness = flags.fovThickness or 2
+        fovCircle.NumSides = 64
+        fovCircle.Filled = false
+        fovCircle.Radius = flags.aimbotFOV or 120
+        fovCircle.Position = Vector2.new(0,0)
+    end)
+end
+
+local function destroyFOVCircle()
+    if not DrawingLib or not fovCircle then return end
+    pcall(function() fovCircle:Remove() end)
+    fovCircle = nil
+end
+
+-- getClosestTarget now returns table {player, position(Vector3), part(optional BasePart)}
 local function getClosestTarget()
     local cam = workspace.CurrentCamera or Camera
     if not cam then return nil end
@@ -121,22 +227,22 @@ local function getClosestTarget()
     local vpSize = cam.ViewportSize
     local screenCenter = Vector2.new(vpSize.X * 0.5, vpSize.Y * 0.5)
     local shortest = flags.aimbotFOV or 120
-    local closestPart = nil
+    local best = nil -- {player=plr, position=Vector3, part=part}
 
     for i = 1, #players do
         local plr = players[i]
         if plr ~= LocalPlayer then
             if not (flags.aimbotTeamCheck and LocalPlayer and plr.Team == LocalPlayer.Team) then
                 local char = plr.Character
-                if char then
-                    local part = char:FindFirstChild(flags.aimbotLockPart or "Head")
-                    if part and (not flags.aimbotAliveCheck or isAlive(char)) then
-                        local pos, onScreen = cam:WorldToViewportPoint(part.Position)
+                if char and (not flags.aimbotAliveCheck or isAlive(char)) then
+                    local pos, part = resolveTargetPositionFromCharacter(char, flags.aimbotLockPart)
+                    if pos then
+                        local screenPos, onScreen = cam:WorldToViewportPoint(pos)
                         if onScreen then
-                            local d = (Vector2.new(pos.X, pos.Y) - screenCenter).Magnitude
+                            local d = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
                             if d < shortest then
                                 shortest = d
-                                closestPart = part
+                                best = {player = plr, position = pos, part = part}
                             end
                         end
                     end
@@ -145,7 +251,7 @@ local function getClosestTarget()
         end
     end
 
-    return closestPart
+    return best
 end
 
 -- Lighting save/restore
@@ -440,12 +546,38 @@ AimBox:AddToggle("Aimbot", {
         disconnectKey("aimbot")
         if v then
             setConnection("aimbot", RunService.RenderStepped:Connect(function()
-                local target = getClosestTarget()
+                local targetData = getClosestTarget()
                 local cam = workspace.CurrentCamera or Camera
-                if target and cam then
+                if targetData and cam then
                     local camPos = cam.CFrame.Position
-                    local newCF = CFrame.new(camPos, target.Position)
-                    cam.CFrame = cam.CFrame:Lerp(newCF, flags.aimbotSmoothness or 0.15)
+                    local rawPos = targetData.position
+                    local predictedPos = nil
+
+                    -- prefer predicting from a real part if available
+                    if targetData.part and targetData.part:IsA("BasePart") then
+                        predictedPos = predictPositionFromPart(targetData.part)
+                    end
+
+                    -- fallback: if predict not available, use vector pos
+                    if not predictedPos and rawPos then
+                        predictedPos = predictPositionFromVector3(rawPos)
+                    end
+
+                    if predictedPos then
+                        -- create desired CFrame looking at predicted position
+                        local desiredCF = CFrame.lookAt(camPos, predictedPos, Vector3.new(0,1,0))
+
+                        -- FIXED: invert smoothness so higher smoothness => slower (more smooth).
+                        -- mapping: smoothness slider [0..1], where 0 = instant snap, 1 = max smooth (slow).
+                        local smooth = clamp(tonumber(flags.aimbotSmoothness) or 0, 0, 1)
+                        -- alpha is lerp factor per-frame: larger alpha moves camera more towards target.
+                        -- we invert: alpha = 1 - smooth. enforce a small minimum so it never stalls.
+                        local alpha = clamp(1 - smooth, 0.01, 1)
+
+                        pcall(function()
+                            cam.CFrame = cam.CFrame:Lerp(desiredCF, alpha)
+                        end)
+                    end
                 end
             end))
         end
@@ -459,14 +591,19 @@ AimBox:AddSlider("AimbotFOV", {
     Max = 300,
     Rounding = 0,
     Compact = false,
-    Callback = function(val) flags.aimbotFOV = val end,
+    Callback = function(val) 
+        flags.aimbotFOV = val
+        if fovCircle then
+            pcall(function() fovCircle.Radius = val end)
+        end
+    end,
 })
 
 AimBox:AddSlider("AimbotSmoothness", {
     Text = "Smoothness",
     Default = flags.aimbotSmoothness,
-    Min = 0.01,
-    Max = 0.5,
+    Min = 0.0,
+    Max = 1.0,
     Rounding = 2,
     Callback = function(val) flags.aimbotSmoothness = val end,
 })
@@ -480,6 +617,46 @@ AimBox:AddDropdown("AimbotLockPart", {
 
 AimBox:AddToggle("AimbotTeamCheck", { Text = "Team Check", Default = false, Callback = function(v) flags.aimbotTeamCheck = v end })
 AimBox:AddToggle("AimbotAliveCheck", { Text = "Alive Check", Default = true, Callback = function(v) flags.aimbotAliveCheck = v end })
+
+-- New: Prediction slider for leading moving targets
+AimBox:AddSlider("AimbotPrediction", {
+    Text = "Prediction (s)",
+    Default = flags.prediction,
+    Min = 0,
+    Max = 1.0,
+    Rounding = 2,
+    Callback = function(val) flags.prediction = val end,
+})
+
+-- New: FOV display toggle
+AimBox:AddToggle("ShowFOV", {
+    Text = "Show FOV",
+    Default = flags.showFOV,
+    Callback = function(v)
+        flags.showFOV = v
+        disconnectKey("fovRender")
+        if v then
+            createFOVCircle()
+            -- update the circle every render
+            setConnection("fovRender", RunService.RenderStepped:Connect(function()
+                if not fovCircle then createFOVCircle() end
+                local cam = workspace.CurrentCamera or Camera
+                if not cam or not fovCircle then return end
+                local vp = cam.ViewportSize
+                local center = Vector2.new(vp.X * 0.5, vp.Y * 0.5)
+                pcall(function()
+                    fovCircle.Visible = true
+                    fovCircle.Position = center
+                    fovCircle.Radius = flags.aimbotFOV or fovCircle.Radius
+                    fovCircle.Color = flags.fovColor or fovCircle.Color
+                    fovCircle.Thickness = flags.fovThickness or fovCircle.Thickness
+                end)
+            end))
+        else
+            destroyFOVCircle()
+        end
+    end
+})
 
 -- Teleport Tab -> Player Teleport
 local TeleBox = Tabs.Teleport:AddLeftGroupbox("Player Teleport", "map")
@@ -690,6 +867,7 @@ Library:OnUnload(function()
         doSetCap(originalCap)
     end
     restoreBoost()
+    destroyFOVCircle()
     _G.VerdictObsidianUI = nil
 end)
 
